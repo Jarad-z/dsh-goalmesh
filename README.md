@@ -1,6 +1,6 @@
 # DSH Agent Swarm Plugin
 
-Agent Swarm is a DeepSeek Harness Plugin that will expose bounded, foreground
+Agent Swarm is a DeepSeek Harness Plugin that exposes bounded, foreground
 subagent orchestration as one model-facing tool and render its durable trajectory
 in the Web client.
 
@@ -10,8 +10,9 @@ This repository deliberately separates three package roles:
 - `dsh-tool-agent-swarm`: the Host tool and invariant companion;
 - `dsh-client-ui-agent-swarm`: the inert Node entry and browser companion.
 
-The current commit is the wiring scaffold. The scheduler, durable trajectory,
-Web projection, DAG policies, and nested swarms land in the numbered commits in
+The Host package currently implements the v0.1 fixed-batch scheduler, durable
+trajectory events, and invariant companion. The Web projection, DAG policies,
+and nested swarms land in the remaining numbered commits in
 [`docs/execution-plan.md`](docs/execution-plan.md). The normative design is
 [`docs/architecture.md`](docs/architecture.md).
 

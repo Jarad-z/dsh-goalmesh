@@ -16,6 +16,7 @@ export default defineConfig([
     platform: 'node',
     target: 'es2024',
     fixedExtension: false,
+    deps: { neverBundle: [/^@deepseek-ai\//, 'zod'] },
     dts: false,
     clean: false,
   },

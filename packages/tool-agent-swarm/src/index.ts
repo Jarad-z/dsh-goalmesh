@@ -1,5 +1,32 @@
-/** Host-side Agent Swarm plugin scaffold. */
-export const name = 'agent-swarm'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-subagent'
+import type {} from '@deepseek-ai/dsh-system-prompt'
+import type {} from '@deepseek-ai/dsh-tools'
+import { SwarmCoordinator } from './coordinator.js'
+import { bindProviderAndToolLifecycle } from './lifecycle.js'
+import { SessionTrajectoryRecorderFactory } from './recorder.js'
+import { ConfigSchema } from './schema.js'
+import type { Config as AgentSwarmConfig } from './types.js'
+import { resolveConfig } from './validation.js'
 
-/** Wiring-only lifecycle body; scheduling is introduced in the next implementation point. */
-export function apply(): void {}
+export const name = 'agent-swarm'
+export const inject = ['tools', 'subagents', 'systemPrompt']
+export const Config = ConfigSchema
+export type Config = AgentSwarmConfig
+
+export type {
+  AgentSwarmRootArgsV01,
+  AgentSwarmToolValue,
+  InvocationTaskResult,
+  TaskReport,
+} from './types.js'
+
+export function apply(ctx: Context, config: AgentSwarmConfig): void {
+  const resolved = resolveConfig(config)
+  const coordinator = new SwarmCoordinator(ctx, resolved, new SessionTrajectoryRecorderFactory(ctx))
+  bindProviderAndToolLifecycle(ctx, coordinator, resolved)
+  ctx.effect(
+    () => async () => { await coordinator.dispose() },
+    'agent-swarm.coordinator()',
+  )
+}
