@@ -157,6 +157,7 @@ export interface SwarmRunStartData {
 export interface SwarmInvocationStartData {
   readonly swarmId: SwarmId
   readonly invocationId: InvocationId
+  readonly parentTaskId?: SwarmTaskId
   readonly callerSessionId: SessionId
 }
 
@@ -168,6 +169,7 @@ export interface SwarmTaskCreatedData {
   readonly label: string
   readonly objectiveSummary: string
   readonly acceptanceCriteriaSummary: readonly string[]
+  readonly parentTaskId?: SwarmTaskId
   readonly dependencies: readonly SwarmTaskId[]
   readonly depth: number
 }

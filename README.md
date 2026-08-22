@@ -10,9 +10,9 @@ This repository deliberately separates three package roles:
 - `dsh-tool-agent-swarm`: the Host tool and invariant companion;
 - `dsh-client-ui-agent-swarm`: the inert Node entry and browser companion.
 
-The Host package currently implements the v0.1 fixed-batch scheduler, durable
-trajectory events, and invariant companion. The Web projection, DAG policies,
-and nested swarms land in the remaining numbered commits in
+Version 0.1 now includes the fixed-batch Host scheduler, durable trajectory and
+invariant companion, plus the Web Agent tree with trusted child-Session navigation.
+DAG policies and nested swarms land in the remaining numbered commits in
 [`docs/execution-plan.md`](docs/execution-plan.md). The normative design is
 [`docs/architecture.md`](docs/architecture.md).
 

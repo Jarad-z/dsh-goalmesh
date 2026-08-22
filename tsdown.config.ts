@@ -38,6 +38,13 @@ export default defineConfig([
     format: 'cjs',
     platform: 'browser',
     target: 'es2022',
+    deps: {
+      neverBundle: [
+        /^react(?:\/|$)/,
+        '@deepseek-ai/dsh-client-runtime/client',
+        '@deepseek-ai/dsh-client-ui-primitives',
+      ],
+    },
     dts: false,
     clean: false,
     sourcemap: true,

@@ -128,6 +128,7 @@ export function applyTrajectoryEvent(
       const run = openRun(trace, swarmId, event.type, fail)
       const invocationId = stringId(data.invocationId, 'invocation-start invocationId', fail)
       stringId(data.callerSessionId, 'invocation-start callerSessionId', fail)
+      if (data.parentTaskId !== undefined) stringId(data.parentTaskId, 'invocation-start parentTaskId', fail)
       if (run.invocations.has(invocationId)) fail(`invocation-start repeats invocation ${invocationId}`)
       run.invocations.set(invocationId, { ended: false, tasks: new Set() })
       return
@@ -141,6 +142,7 @@ export function applyTrajectoryEvent(
       }
       const taskId = stringId(data.taskId, 'task-created taskId', fail)
       if (run.tasks.has(taskId)) fail(`task-created repeats task ${taskId}`)
+      if (data.parentTaskId !== undefined) stringId(data.parentTaskId, 'task-created parentTaskId', fail)
       if (!Array.isArray(data.dependencies)) fail('task-created dependencies must be an array')
       for (const dependency of data.dependencies) stringId(dependency, 'task-created dependency', fail)
       run.tasks.set(taskId, { invocationId, status: 'ready' })

@@ -15,9 +15,16 @@ export const Config = ConfigSchema
 export type Config = AgentSwarmConfig
 
 export type {
+  AgentSwarmEventMap,
+  AgentSwarmEventType,
   AgentSwarmRootArgsV01,
   AgentSwarmToolValue,
+  AttemptId,
+  InvocationId,
   InvocationTaskResult,
+  SwarmId,
+  SwarmTaskId,
+  SwarmTaskViewStatus,
   TaskReport,
 } from './types.js'
 
