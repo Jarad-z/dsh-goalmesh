@@ -1,0 +1,26 @@
+{
+  "name": "dsh-agent-swarm-plugin",
+  "version": "0.1.0",
+  "description": "Installable DeepSeek Harness bundle for the Agent Swarm tool and Web trajectory companion.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dependencies": {
+    "dsh-client-ui-agent-swarm": "workspace:^",
+    "dsh-tool-agent-swarm": "workspace:^"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

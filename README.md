@@ -1,0 +1,34 @@
+# DSH Agent Swarm Plugin
+
+Agent Swarm is a DeepSeek Harness Plugin that will expose bounded, foreground
+subagent orchestration as one model-facing tool and render its durable trajectory
+in the Web client.
+
+This repository deliberately separates three package roles:
+
+- `dsh-agent-swarm-plugin`: the installable composition bundle;
+- `dsh-tool-agent-swarm`: the Host tool and invariant companion;
+- `dsh-client-ui-agent-swarm`: the inert Node entry and browser companion.
+
+The current commit is the wiring scaffold. The scheduler, durable trajectory,
+Web projection, DAG policies, and nested swarms land in the numbered commits in
+[`docs/execution-plan.md`](docs/execution-plan.md). The normative design is
+[`docs/architecture.md`](docs/architecture.md).
+
+## Development
+
+Requirements: Node.js 22.19 or newer and pnpm 11.7.
+
+```sh
+pnpm install
+pnpm check
+```
+
+The build emits Host entries under `packages/tool-agent-swarm/lib/` and the Web
+Node/client entries under `packages/client-ui-agent-swarm/lib/`. The browser
+artifact uses the DSH `window.__ModuleLoader__` closure format; it is not a
+standalone browser script.
+
+To inspect distribution contents, build first and run `pnpm pack` in each package.
+The bundle tarball must contain `index.js` and `cordis.patch.yml`; the runtime
+tarballs must contain their declared `lib/` exports.

@@ -1,0 +1,26 @@
+{
+  "name": "dsh-agent-swarm-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm clean && pnpm typecheck && tsdown",
+    "check": "pnpm build && pnpm test:unit && pnpm lint",
+    "clean": "node scripts/clean.mjs",
+    "lint": "oxlint .",
+    "test": "pnpm build && pnpm test:unit",
+    "test:unit": "vitest run",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "oxlint": "1.76.0",
+    "tsdown": "0.22.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8",
+    "yaml": "2.8.1"
+  }
+}
