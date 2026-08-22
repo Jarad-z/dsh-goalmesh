@@ -25,11 +25,10 @@ export type SwarmTrajectoryStatus =
   | 'interrupted'
 
 export type SwarmProjectedTaskStatus = SwarmTaskViewStatus
-  | 'waiting'
   | 'waiting_children'
   | 'ready_to_resume'
   | 'interrupted'
-export type SwarmTreeDiagnostic = 'orphan' | 'cycle' | 'depth-cap'
+export type SwarmTreeDiagnostic = 'orphan' | 'cycle' | 'depth-cap' | 'dependency-deadlock'
 
 export interface SwarmTimelineEntry {
   readonly seq: number
@@ -131,7 +130,7 @@ declare module '@deepseek-ai/dsh-client-ui-conversation/client' {
 
 type SwarmUpdateEventType = Exclude<AgentSwarmEventType, 'tool-agent-swarm/run-start'>
 
-/** Closed recognition of the seven v0.1 trajectory update events. */
+/** Closed recognition of the seven durable trajectory update events. */
 export function isSwarmUpdateEvent(event: SessionEvent): event is SessionEvent<SwarmUpdateEventType> {
   switch (event.type) {
     case 'tool-agent-swarm/invocation-start':
@@ -201,7 +200,7 @@ function foldEvent(state: SwarmTrajectoryState, event: SessionEvent<SwarmUpdateE
         depth: event.data.depth,
         createdSeq: event.seq,
         createdAt: event.time,
-        status: 'ready',
+        status: event.data.dependencies.length === 0 ? 'ready' : 'waiting',
         timeline: [timeline(event, 'created')],
       })
       const childrenByParent = new Map(state.childrenByParent)
@@ -325,6 +324,9 @@ function buildForest(state: SwarmTrajectoryState, interrupted: boolean): {
     const dependents = state.taskOrder.filter(candidateId =>
       state.tasksById.get(candidateId)?.dependencies.includes(taskId) === true)
     const diagnostics = new Set(initialDiagnostics)
+    if (task.timeline.some(entry => entry.summary.includes('(dependency_deadlock)'))) {
+      diagnostics.add('dependency-deadlock')
+    }
     if (path.has(taskId)) {
       diagnostics.add('cycle')
       warnings.push(`cycle detected at task ${taskId}`)

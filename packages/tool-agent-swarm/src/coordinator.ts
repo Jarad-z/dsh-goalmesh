@@ -7,13 +7,17 @@ import { delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SwarmRunError } from './errors.js'
 import type { SwarmRunFailureKind } from './errors.js'
+import { dependencyDeadlockCandidates } from './dag.js'
 import { ATTEMPT_TIMEOUT_CODE, SubagentLauncher } from './launcher.js'
 import type { LaunchedTask, Launcher, MaterializedTask, TaskCompletionOutcome } from './launcher.js'
 import { buildChildPrompt } from './prompt.js'
+import type { ResolvedDependencyPrompt } from './prompt.js'
 import type {
   AgentSwarmToolValue,
   AttemptId,
+  DependencyFailurePolicy,
   InvocationHandle,
+  InvocationFailureMode,
   InvocationId,
   InvocationTaskResult,
   ResolvedConfig,
@@ -28,7 +32,7 @@ import type {
   TrajectoryRecorderFactory,
   TrajectorySink,
 } from './types.js'
-import { assertRootArgsV01, boundedText, sanitizeDiagnostic } from './validation.js'
+import { assertRootArgsV02, boundedText, sanitizeDiagnostic } from './validation.js'
 
 export const SWARM_TIMEOUT_CODE = 'AGENT_SWARM_TIMEOUT'
 
@@ -55,18 +59,23 @@ interface TaskSpec {
   readonly description: string
   readonly depth: 1
   readonly taskGoal: TaskGoal
+  readonly dependencies: readonly SwarmTaskId[]
+  readonly dependencyFailure: DependencyFailurePolicy
 }
 
 type TaskTerminal =
   | { readonly kind: 'completed'; readonly report: TaskReport }
   | { readonly kind: 'failed'; readonly failure: TaskFailure }
+  | { readonly kind: 'skipped'; readonly failure: TaskFailure }
   | { readonly kind: 'aborted'; readonly failure: TaskFailure }
 
 interface TaskState {
   readonly spec: TaskSpec
-  phase: 'ready' | 'starting' | 'running' | 'terminal'
+  phase: 'waiting' | 'ready' | 'starting' | 'running' | 'terminal'
   viewStatus: SwarmTaskViewStatus
+  unmetDependencies: number
   attemptNo: number
+  materializedDependencies?: readonly ResolvedDependencyPrompt[]
   currentAttemptId?: AttemptId
   currentChildId?: LaunchedTask['childId']
   terminal?: TaskTerminal
@@ -81,6 +90,11 @@ interface ActiveAttempt {
 
 interface RunCancellation {
   readonly kind: SwarmRunFailureKind
+  readonly message: string
+}
+
+interface InvocationPolicyStop {
+  readonly reason: 'failed_fast' | 'quorum_reached'
   readonly message: string
 }
 
@@ -100,15 +114,21 @@ interface RunState {
   readonly absoluteMaxDepth: number
   readonly taskIds: readonly SwarmTaskId[]
   readonly tasks: Map<SwarmTaskId, TaskState>
+  readonly dependents: ReadonlyMap<SwarmTaskId, readonly SwarmTaskId[]>
   readonly ready: SwarmTaskId[]
   readonly activeAttempts: Map<AttemptId, ActiveAttempt>
   readonly completion: Deferred<AgentSwarmToolValue>
   readonly recorder: TrajectorySink
   readonly controller: AbortController
+  readonly policyController: AbortController
   readonly swarmDeadline: Deadline
   readonly onAbort: () => void
   readonly commands: Command[]
   phase: 'running' | 'cancelling' | 'finished'
+  readonly failureMode: InvocationFailureMode
+  readonly quorum?: number
+  terminalReason: AgentSwarmToolValue['terminalReason']
+  policyStop?: InvocationPolicyStop
   cancellation?: RunCancellation
   unfinishedTaskCount: number
   permitsInUse: number
@@ -130,11 +150,12 @@ function taskFailure(
   message: string,
   now: () => number,
   childId?: LaunchedTask['childId'],
+  scope: TaskFailure['scope'] = attemptId === undefined ? 'task' : 'attempt',
 ): TaskFailure {
   return {
     kind,
     phase,
-    scope: 'attempt',
+    scope,
     message,
     taskId,
     ...attemptId === undefined ? {} : { attemptId },
@@ -145,6 +166,7 @@ function taskFailure(
 
 function eventTerminalStatus(terminal: TaskTerminal): SwarmTaskViewStatus {
   if (terminal.kind === 'completed') return 'completed'
+  if (terminal.kind === 'skipped') return 'skipped'
   if (terminal.failure.kind === 'timeout') return 'timed_out'
   if (terminal.kind === 'aborted') return 'cancelled'
   return 'failed'
@@ -179,7 +201,7 @@ export class SwarmCoordinator {
 
   invokeRoot(input: RootInvocationInput): InvocationHandle {
     if (!this.accepting) throw new Error('agent_swarm is shutting down and no longer accepts invocations')
-    assertRootArgsV01(input.args, this.config.maxTasks)
+    const admitted = assertRootArgsV02(input.args, this.config.maxTasks, this.config.defaultFailureMode)
     const existingId = this.rootInvocationsByCommand.get(input.commandToken)
     if (existingId !== undefined) {
       const existing = this.runs.get(existingId)
@@ -191,12 +213,12 @@ export class SwarmCoordinator {
     if (provider === undefined) throw new Error(`subagent provider "${this.config.provider}" is not registered`)
     if (!provider.capabilities.outputSchema || !provider.capabilities.depthLimit) {
       throw new Error(
-        `subagent provider "${provider.name}" must support outputSchema and depthLimit for agent_swarm v0.1`,
+        `subagent provider "${provider.name}" must support outputSchema and depthLimit for agent_swarm v0.2`,
       )
     }
     const rootDepth = delegationDepthOf(input.rootAgent)
     if (rootDepth !== 0) {
-      throw new Error('agent_swarm v0.1 accepts only top-level callers; nested swarm is disabled')
+      throw new Error('agent_swarm v0.2 accepts only top-level callers; nested swarm is disabled')
     }
     const absoluteMaxDepth = rootDepth + this.config.maxDepth
     if (!Number.isSafeInteger(absoluteMaxDepth)) throw new Error('agent_swarm absolute maxDepth exceeds safe integer range')
@@ -209,15 +231,25 @@ export class SwarmCoordinator {
       successCriteria: [...input.args.goal.success_criteria],
       constraints: [...(input.args.goal.constraints ?? [])],
     }
+    const taskIds = input.args.tasks.map(() => this.nextId<SwarmTaskId>('task'))
+    const taskIdsByKey = new Map(input.args.tasks.map((source, index) => [source.key, taskIds[index] as SwarmTaskId]))
     const tasks = new Map<SwarmTaskId, TaskState>()
-    const taskIds = input.args.tasks.map((source): SwarmTaskId => {
-      const taskId = this.nextId<SwarmTaskId>('task')
+    input.args.tasks.forEach((source, index): void => {
+      const taskId = taskIds[index]
+      if (taskId === undefined) throw new Error('agent_swarm failed to allocate an admitted task')
+      const dependencies = (admitted.dependenciesByKey.get(source.key) ?? []).map((key) => {
+        const dependencyId = taskIdsByKey.get(key)
+        if (dependencyId === undefined) throw new Error(`admitted dependency ${key} has no task ID`)
+        return dependencyId
+      })
       const spec: TaskSpec = {
         id: taskId,
         key: source.key,
         invocationId,
         description: source.description,
         depth: 1,
+        dependencies,
+        dependencyFailure: admitted.dependencyFailureByKey.get(source.key) ?? 'fail',
         taskGoal: {
           objective: source.objective,
           acceptanceCriteria: [...source.acceptance_criteria],
@@ -226,14 +258,21 @@ export class SwarmCoordinator {
       }
       tasks.set(taskId, {
         spec,
-        phase: 'ready',
-        viewStatus: 'ready',
+        phase: dependencies.length === 0 ? 'ready' : 'waiting',
+        viewStatus: dependencies.length === 0 ? 'ready' : 'waiting',
+        unmetDependencies: dependencies.length,
         attemptNo: 0,
+        ...dependencies.length === 0 ? { materializedDependencies: [] } : {},
       })
-      return taskId
     })
+    const mutableDependents = new Map<SwarmTaskId, SwarmTaskId[]>(taskIds.map(taskId => [taskId, []]))
+    for (const task of tasks.values()) {
+      for (const dependency of task.spec.dependencies) mutableDependents.get(dependency)?.push(task.spec.id)
+    }
+    const dependents = new Map([...mutableDependents].map(([taskId, values]) => [taskId, values as readonly SwarmTaskId[]]))
 
     const controller = new AbortController()
+    const policyController = new AbortController()
     const upstream = AbortSignal.any([input.signal, controller.signal])
     const swarmDeadline = deadline(upstream, this.config.swarmTimeoutMs, SWARM_TIMEOUT_CODE)
     const completion = deferred<AgentSwarmToolValue>()
@@ -262,15 +301,20 @@ export class SwarmCoordinator {
       absoluteMaxDepth,
       taskIds,
       tasks,
-      ready: [...taskIds],
+      dependents,
+      ready: taskIds.filter(taskId => tasks.get(taskId)?.phase === 'ready'),
       activeAttempts: new Map<AttemptId, ActiveAttempt>(),
       completion,
       recorder,
       controller,
+      policyController,
       swarmDeadline,
       onAbort,
       commands: [],
       phase: 'running',
+      failureMode: admitted.failureMode,
+      ...admitted.quorum === undefined ? {} : { quorum: admitted.quorum },
+      terminalReason: 'all_tasks_settled',
       unfinishedTaskCount: taskIds.length,
       permitsInUse: 0,
       draining: false,
@@ -301,7 +345,7 @@ export class SwarmCoordinator {
         objectiveSummary: boundedText(task.spec.taskGoal.objective, 500),
         acceptanceCriteriaSummary: task.spec.taskGoal.acceptanceCriteria.slice(0, 12)
           .map(value => boundedText(value, 240)),
-        dependencies: [],
+        dependencies: task.spec.dependencies,
         depth: 1,
       })
     }
@@ -421,7 +465,7 @@ export class SwarmCoordinator {
   }
 
   private schedule(run: RunState, effects: (() => void)[]): void {
-    if (run.phase !== 'running') return
+    if (run.phase !== 'running' || run.policyStop !== undefined) return
     while (run.permitsInUse < this.config.maxConcurrency && run.ready.length > 0) {
       const taskId = run.ready.shift()
       if (taskId === undefined) break
@@ -431,7 +475,11 @@ export class SwarmCoordinator {
       const attemptId = this.nextId<AttemptId>('attempt')
       task.currentAttemptId = attemptId
       this.transition(run, task, 'starting')
-      const attemptDeadline = deadline(run.swarmDeadline.signal, this.config.attemptTimeoutMs, ATTEMPT_TIMEOUT_CODE)
+      const attemptDeadline = deadline(
+        AbortSignal.any([run.swarmDeadline.signal, run.policyController.signal]),
+        this.config.attemptTimeoutMs,
+        ATTEMPT_TIMEOUT_CODE,
+      )
       run.activeAttempts.set(attemptId, {
         id: attemptId,
         taskId,
@@ -440,6 +488,7 @@ export class SwarmCoordinator {
       run.permitsInUse++
       effects.push(() => { this.launch(run, task, attemptId, attemptDeadline.signal) })
     }
+    this.auditIfStalled(run)
   }
 
   private launch(run: RunState, task: TaskState, attemptId: AttemptId, signal: AbortSignal): void {
@@ -447,7 +496,12 @@ export class SwarmCoordinator {
       taskId: task.spec.id,
       attemptId,
       description: task.spec.description,
-      prompt: buildChildPrompt(run.goal, task.spec.taskGoal, this.config.toolName),
+      prompt: buildChildPrompt(
+        run.goal,
+        task.spec.taskGoal,
+        this.config.toolName,
+        task.materializedDependencies ?? [],
+      ),
       parentAgent: run.rootAgent,
       absoluteMaxDepth: run.absoluteMaxDepth,
       signal,
@@ -515,6 +569,8 @@ export class SwarmCoordinator {
       ? taskFailure(task.spec.id, attemptId, 'timeout', 'launch', 'swarm deadline elapsed before child publication', this.now)
       : timeoutOf(signal, ATTEMPT_TIMEOUT_CODE) !== undefined
       ? taskFailure(task.spec.id, attemptId, 'timeout', 'launch', 'child attempt timed out before publication', this.now)
+      : run.policyStop !== undefined
+        ? taskFailure(task.spec.id, attemptId, 'cancelled', 'launch', run.policyStop.message, this.now)
       : signal.aborted
         ? taskFailure(task.spec.id, attemptId, 'cancelled', 'launch', 'child start was cancelled before publication', this.now)
         : taskFailure(
@@ -572,10 +628,9 @@ export class SwarmCoordinator {
     run.cancellation = cancellation
     run.phase = 'cancelling'
     if (!run.controller.signal.aborted) run.controller.abort(new SwarmRunError(cancellation.kind, cancellation.message))
-    const ready = run.ready.splice(0)
-    for (const taskId of ready) {
-      const task = run.tasks.get(taskId)
-      if (task === undefined || task.phase !== 'ready') continue
+    run.ready.splice(0)
+    for (const task of run.tasks.values()) {
+      if (task.phase !== 'ready' && task.phase !== 'waiting') continue
       const failure = taskFailure(
         task.spec.id,
         undefined,
@@ -584,7 +639,7 @@ export class SwarmCoordinator {
         cancellation.message,
         this.now,
       )
-      this.terminalTask(run, task, { kind: 'aborted', failure })
+      this.terminalTask(run, task, { kind: 'aborted', failure }, { evaluatePolicy: false, propagate: false })
     }
     for (const attempt of run.activeAttempts.values()) {
       if (attempt.launched !== undefined) {
@@ -605,7 +660,12 @@ export class SwarmCoordinator {
     })
   }
 
-  private terminalTask(run: RunState, task: TaskState, terminal: TaskTerminal): void {
+  private terminalTask(
+    run: RunState,
+    task: TaskState,
+    terminal: TaskTerminal,
+    options: { readonly evaluatePolicy?: boolean; readonly propagate?: boolean } = {},
+  ): void {
     if (task.phase === 'terminal') return
     const from = task.viewStatus
     task.phase = 'terminal'
@@ -620,6 +680,134 @@ export class SwarmCoordinator {
       to: task.viewStatus,
       ...terminal.kind === 'completed' ? {} : { reason: terminal.failure.kind },
     })
+    if (options.evaluatePolicy !== false && this.maybeStopByPolicy(run, terminal)) return
+    if (options.propagate !== false && run.phase === 'running' && run.policyStop === undefined) {
+      this.releaseDependents(run, task)
+    }
+  }
+
+  private maybeStopByPolicy(run: RunState, terminal: TaskTerminal): boolean {
+    if (run.phase !== 'running' || run.policyStop !== undefined || run.cancellation !== undefined) return false
+    if (run.failureMode === 'fail_fast' && terminal.kind === 'failed') {
+      this.stopByPolicy(run, {
+        reason: 'failed_fast',
+        message: 'agent_swarm stopped this invocation after the first task failure',
+      })
+      return true
+    }
+    if (run.failureMode === 'quorum' && terminal.kind === 'completed') {
+      const completed = [...run.tasks.values()].filter(task => task.terminal?.kind === 'completed').length
+      if (completed >= (run.quorum ?? Number.MAX_SAFE_INTEGER)) {
+        this.stopByPolicy(run, {
+          reason: 'quorum_reached',
+          message: `agent_swarm invocation reached quorum (${completed}/${run.quorum})`,
+        })
+        return true
+      }
+    }
+    return false
+  }
+
+  private stopByPolicy(run: RunState, stop: InvocationPolicyStop): void {
+    if (run.policyStop !== undefined) return
+    run.policyStop = stop
+    run.terminalReason = stop.reason
+    run.ready.splice(0)
+    if (!run.policyController.signal.aborted) run.policyController.abort(stop)
+    for (const task of run.tasks.values()) {
+      if (task.phase !== 'ready' && task.phase !== 'waiting') continue
+      const failure = taskFailure(
+        task.spec.id,
+        undefined,
+        'cancelled',
+        'scheduler',
+        stop.message,
+        this.now,
+      )
+      this.terminalTask(run, task, { kind: 'aborted', failure }, { evaluatePolicy: false, propagate: false })
+    }
+  }
+
+  private releaseDependents(run: RunState, settled: TaskState): void {
+    for (const dependentId of run.dependents.get(settled.spec.id) ?? []) {
+      const dependent = run.tasks.get(dependentId)
+      if (dependent === undefined || dependent.phase !== 'waiting') continue
+      dependent.unmetDependencies--
+      if (dependent.unmetDependencies < 0) {
+        throw new Error(`task ${dependent.spec.id} dependency counter became negative`)
+      }
+      if (dependent.unmetDependencies === 0) this.resolveDependencies(run, dependent)
+    }
+  }
+
+  private resolveDependencies(run: RunState, task: TaskState): void {
+    const dependencies = task.spec.dependencies.map((dependencyId): ResolvedDependencyPrompt => {
+      const dependency = run.tasks.get(dependencyId)
+      if (dependency?.terminal === undefined) throw new Error(`task ${task.spec.id} resolved before dependency ${dependencyId}`)
+      const terminal = dependency.terminal
+      if (terminal.kind === 'completed') {
+        return {
+          key: dependency.spec.key,
+          status: 'completed',
+          reportedStatus: terminal.report.reported_status,
+          summary: terminal.report.summary,
+        }
+      }
+      return {
+        key: dependency.spec.key,
+        status: terminal.kind === 'skipped' ? 'skipped' : terminal.kind === 'aborted' ? 'aborted' : 'failed',
+        failureKind: terminal.failure.kind,
+      }
+    })
+    const missing = dependencies.filter(dependency => dependency.status !== 'completed')
+    task.materializedDependencies = dependencies
+    if (missing.length > 0 && task.spec.dependencyFailure !== 'partial') {
+      const message = boundedText(
+        `dependency inputs unavailable: ${missing.map(dependency => dependency.key).join(', ')}`,
+        500,
+      )
+      const failure = taskFailure(task.spec.id, undefined, 'dependency_failed', 'waiting', message, this.now)
+      this.terminalTask(run, task, task.spec.dependencyFailure === 'skip'
+        ? { kind: 'skipped', failure }
+        : { kind: 'failed', failure })
+      return
+    }
+    const from = task.viewStatus
+    task.phase = 'ready'
+    task.viewStatus = 'ready'
+    run.ready.push(task.spec.id)
+    run.recorder.append('tool-agent-swarm/task-transition', {
+      swarmId: run.id,
+      taskId: task.spec.id,
+      from,
+      to: 'ready',
+      ...missing.length === 0 ? {} : { reason: 'partial_dependencies' },
+    })
+  }
+
+  private auditIfStalled(run: RunState): void {
+    if (run.phase !== 'running' || run.policyStop !== undefined || run.unfinishedTaskCount === 0
+      || run.ready.length > 0 || run.activeAttempts.size > 0) return
+    const stalledIds = dependencyDeadlockCandidates(
+      [...run.tasks.values()].map(task => ({ id: task.spec.id, phase: task.phase })),
+      run.ready.length,
+      run.activeAttempts.size,
+    )
+    if (stalledIds.length === 0) throw new Error('scheduler stalled without ready, active, or waiting tasks')
+    this.ctx.logger.warn(`agent_swarm dependency deadlock audit settled ${stalledIds.length} tasks in ${run.id}`)
+    for (const taskId of stalledIds) {
+      const task = run.tasks.get(taskId)
+      if (task === undefined || task.phase !== 'waiting') continue
+      const failure = taskFailure(
+        task.spec.id,
+        undefined,
+        'dependency_deadlock',
+        'waiting',
+        `dependency deadlock audit found ${task.unmetDependencies} unresolved dependencies`,
+        this.now,
+      )
+      this.terminalTask(run, task, { kind: 'failed', failure }, { evaluatePolicy: false, propagate: false })
+    }
   }
 
   private assertLedger(run: RunState): void {
@@ -630,10 +818,24 @@ export class SwarmCoordinator {
       throw new Error(`permit/attempt mismatch: ${run.permitsInUse} != ${run.activeAttempts.size}`)
     }
     let unfinished = 0
+    const queued = new Set(run.ready)
+    if (queued.size !== run.ready.length) throw new Error('ready queue contains duplicate tasks')
     for (const task of run.tasks.values()) {
       if (task.phase !== 'terminal') unfinished++
       if (task.phase === 'terminal' && task.terminal === undefined) throw new Error(`terminal task ${task.spec.id} has no result`)
       if (task.phase !== 'terminal' && task.terminal !== undefined) throw new Error(`non-terminal task ${task.spec.id} has a result`)
+      if (task.phase === 'waiting' && task.unmetDependencies <= 0) {
+        throw new Error(`waiting task ${task.spec.id} has no unmet dependencies`)
+      }
+      if (task.phase === 'ready' && (task.unmetDependencies !== 0 || !queued.has(task.spec.id))) {
+        throw new Error(`ready task ${task.spec.id} is inconsistent with its dependency or queue state`)
+      }
+      if (task.phase !== 'ready' && queued.has(task.spec.id)) {
+        throw new Error(`ready queue references non-ready task ${task.spec.id}`)
+      }
+      if ((task.phase === 'starting' || task.phase === 'running') && task.currentAttemptId === undefined) {
+        throw new Error(`active task ${task.spec.id} has no current attempt`)
+      }
     }
     if (unfinished !== run.unfinishedTaskCount) {
       throw new Error(`unfinished task mismatch: ${run.unfinishedTaskCount} != ${unfinished}`)
@@ -652,7 +854,7 @@ export class SwarmCoordinator {
     const value = this.toolValue(run)
     const eventSummary = this.eventSummary(run)
     const status = run.cancellation === undefined
-      ? value.summary.failed === 0 && value.summary.aborted === 0 ? 'completed' : 'partial'
+      ? value.summary.failed === 0 && value.summary.skipped === 0 && value.summary.aborted === 0 ? 'completed' : 'partial'
       : run.cancellation.kind === 'deadline_exceeded' ? 'timed_out'
         : run.cancellation.kind === 'state_corrupted' ? 'failed' : 'cancelled'
     run.recorder.append('tool-agent-swarm/invocation-end', {
@@ -691,7 +893,9 @@ export class SwarmCoordinator {
       }
       return {
         ...base,
-        status: task.terminal.kind === 'aborted' ? 'aborted' as const : 'failed' as const,
+        status: task.terminal.kind === 'aborted'
+          ? 'aborted' as const
+          : task.terminal.kind === 'skipped' ? 'skipped' as const : 'failed' as const,
         failure: {
           kind: task.terminal.failure.kind,
           message: task.terminal.failure.message,
@@ -712,7 +916,7 @@ export class SwarmCoordinator {
       swarmId: run.id,
       invocationId: run.invocationId,
       kind: 'root',
-      terminalReason: 'all_tasks_settled',
+      terminalReason: run.terminalReason,
       tasks,
       summary,
     }
@@ -729,7 +933,7 @@ export class SwarmCoordinator {
     return {
       completed: terminals.filter(terminal => terminal?.kind === 'completed').length,
       failed: terminals.filter(terminal => terminal?.kind === 'failed' && terminal.failure.kind !== 'timeout').length,
-      skipped: 0,
+      skipped: terminals.filter(terminal => terminal?.kind === 'skipped').length,
       cancelled: terminals.filter(terminal => terminal?.kind === 'aborted' && terminal.failure.kind !== 'timeout').length,
       timedOut: terminals.filter(terminal => terminal?.kind !== 'completed' && terminal?.failure.kind === 'timeout').length,
     }

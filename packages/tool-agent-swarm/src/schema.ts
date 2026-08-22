@@ -14,7 +14,7 @@ export const ConfigSchema = z.object({
   attemptTimeoutMs: z.natural().min(1).max(MAX_TIMER_DELAY_MS).default(300_000),
   maxTaskReportChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(12_000),
   maxRenderedResultChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(50_000),
-  defaultFailureMode: z.const('collect_all' as const).default('collect_all'),
+  defaultFailureMode: z.union(['collect_all', 'fail_fast'] as const).default('collect_all'),
   nestedMode: z.const('disabled' as const).default('disabled'),
   childAgentOptions: z.object({
     provider: z.string(),
@@ -58,9 +58,19 @@ export const ROOT_AGENT_SWARM_PARAMETERS = {
           items: { type: 'string' as const },
         },
         expected_outputs: { type: 'array' as const, items: { type: 'string' as const } },
+        depends_on: { type: 'array' as const, items: { type: 'string' as const } },
+        dependency_failure: {
+          type: 'string' as const,
+          enum: ['fail', 'skip', 'partial'] as const,
+        },
       },
     },
   },
+  failure_mode: {
+    type: 'string' as const,
+    enum: ['collect_all', 'fail_fast', 'quorum'] as const,
+  },
+  quorum: { type: 'integer' as const },
 } as const
 
 export const TASK_REPORT_JSON_SCHEMA: ObjectJsonSchema = {
@@ -130,7 +140,11 @@ export const AGENT_SWARM_OUTPUT_SCHEMA = {
     swarmId: { type: 'string' as const, required: true },
     invocationId: { type: 'string' as const, required: true },
     kind: { type: 'string' as const, required: true, const: 'root' as const },
-    terminalReason: { type: 'string' as const, required: true, const: 'all_tasks_settled' as const },
+    terminalReason: {
+      type: 'string' as const,
+      required: true,
+      enum: ['all_tasks_settled', 'quorum_reached', 'failed_fast'] as const,
+    },
     tasks: {
       type: 'array' as const,
       required: true,

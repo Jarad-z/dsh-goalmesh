@@ -21,4 +21,5 @@ const aliases = Object.entries(paths).map(([specifier, [target]]) => {
 
 export default defineConfig({
   resolve: { alias: aliases },
+  test: { maxWorkers: 1 },
 })

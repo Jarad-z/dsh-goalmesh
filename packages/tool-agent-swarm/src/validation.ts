@@ -1,9 +1,24 @@
 import type { JsonValue } from '@deepseek-ai/dsh-session'
-import type { AgentSwarmRootArgsV01, Config, ResolvedConfig, TaskReport } from './types.js'
+import type {
+  AgentSwarmRootArgsV02,
+  Config,
+  DependencyFailurePolicy,
+  InvocationFailureMode,
+  ResolvedConfig,
+  TaskReport,
+} from './types.js'
 
-const ROOT_KEYS = new Set(['goal', 'tasks'])
+const ROOT_KEYS = new Set(['goal', 'tasks', 'failure_mode', 'quorum'])
 const GOAL_KEYS = new Set(['statement', 'success_criteria', 'constraints'])
-const TASK_KEYS = new Set(['key', 'description', 'objective', 'acceptance_criteria', 'expected_outputs'])
+const TASK_KEYS = new Set([
+  'key',
+  'description',
+  'objective',
+  'acceptance_criteria',
+  'expected_outputs',
+  'depends_on',
+  'dependency_failure',
+])
 const REPORT_KEYS = new Set(['reported_status', 'summary', 'evidence', 'output', 'remaining_problems'])
 const EVIDENCE_KEYS = new Set(['claim', 'reference'])
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -49,6 +64,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const attemptTimeoutMs = config.attemptTimeoutMs ?? 300_000
   const maxTaskReportChars = config.maxTaskReportChars ?? 12_000
   const maxRenderedResultChars = config.maxRenderedResultChars ?? 50_000
+  const defaultFailureMode = config.defaultFailureMode ?? 'collect_all'
   positiveSafeInteger(maxConcurrency, 'config.maxConcurrency')
   positiveSafeInteger(maxTasks, 'config.maxTasks')
   positiveSafeInteger(maxDepth, 'config.maxDepth')
@@ -56,11 +72,11 @@ export function resolveConfig(config: Config): ResolvedConfig {
   positiveSafeInteger(attemptTimeoutMs, 'config.attemptTimeoutMs', MAX_TIMER_DELAY_MS)
   positiveSafeInteger(maxTaskReportChars, 'config.maxTaskReportChars')
   positiveSafeInteger(maxRenderedResultChars, 'config.maxRenderedResultChars')
-  if (config.defaultFailureMode !== undefined && config.defaultFailureMode !== 'collect_all') {
-    throw new Error('config.defaultFailureMode only supports "collect_all" in v0.1')
+  if (!['collect_all', 'fail_fast'].includes(defaultFailureMode)) {
+    throw new Error('config.defaultFailureMode must be "collect_all" or "fail_fast" in v0.2')
   }
   if (config.nestedMode !== undefined && config.nestedMode !== 'disabled') {
-    throw new Error('config.nestedMode only supports "disabled" in v0.1')
+    throw new Error('config.nestedMode only supports "disabled" in v0.2')
   }
   if (config.childToolFilter !== undefined
     && config.childToolFilter.allow === undefined && config.childToolFilter.deny === undefined) {
@@ -76,12 +92,24 @@ export function resolveConfig(config: Config): ResolvedConfig {
     attemptTimeoutMs,
     maxTaskReportChars,
     maxRenderedResultChars,
+    defaultFailureMode,
     ...config.childAgentOptions === undefined ? {} : { childAgentOptions: config.childAgentOptions },
     ...config.childToolFilter === undefined ? {} : { childToolFilter: config.childToolFilter },
   }
 }
 
-export function assertRootArgsV01(args: AgentSwarmRootArgsV01, maxTasks: number): void {
+export interface ValidatedRootArgsV02 {
+  readonly failureMode: InvocationFailureMode
+  readonly quorum?: number
+  readonly dependenciesByKey: ReadonlyMap<string, readonly string[]>
+  readonly dependencyFailureByKey: ReadonlyMap<string, DependencyFailurePolicy>
+}
+
+export function assertRootArgsV02(
+  args: AgentSwarmRootArgsV02,
+  maxTasks: number,
+  defaultFailureMode: ResolvedConfig['defaultFailureMode'] = 'collect_all',
+): ValidatedRootArgsV02 {
   const root = plainRecord(args, 'arguments')
   assertExactKeys(root, ROOT_KEYS, 'arguments')
   const goal = plainRecord(root.goal, 'arguments.goal')
@@ -96,6 +124,8 @@ export function assertRootArgsV01(args: AgentSwarmRootArgsV01, maxTasks: number)
     throw new Error(`arguments.tasks exceeds maxTasks (${root.tasks.length} > ${maxTasks})`)
   }
   const keys = new Set<string>()
+  const dependenciesByKey = new Map<string, readonly string[]>()
+  const dependencyFailureByKey = new Map<string, DependencyFailurePolicy>()
   root.tasks.forEach((candidate, index) => {
     const task = plainRecord(candidate, `arguments.tasks[${index}]`)
     assertExactKeys(task, TASK_KEYS, `arguments.tasks[${index}]`)
@@ -108,7 +138,71 @@ export function assertRootArgsV01(args: AgentSwarmRootArgsV01, maxTasks: number)
     if (task.expected_outputs !== undefined) {
       stringArray(task.expected_outputs, `arguments.tasks[${index}].expected_outputs`, false)
     }
+    if (task.depends_on !== undefined) {
+      stringArray(task.depends_on, `arguments.tasks[${index}].depends_on`, false)
+      const dependencies = [...task.depends_on]
+      if (new Set(dependencies).size !== dependencies.length) {
+        throw new Error(`arguments.tasks[${index}].depends_on contains duplicate keys`)
+      }
+      dependenciesByKey.set(task.key, dependencies)
+    } else {
+      dependenciesByKey.set(task.key, [])
+    }
+    if (task.dependency_failure !== undefined
+      && !['fail', 'skip', 'partial'].includes(String(task.dependency_failure))) {
+      throw new Error(`arguments.tasks[${index}].dependency_failure is invalid`)
+    }
+    dependencyFailureByKey.set(task.key, (task.dependency_failure ?? 'fail') as DependencyFailurePolicy)
   })
+
+  for (const [key, dependencies] of dependenciesByKey) {
+    for (const dependency of dependencies) {
+      if (dependency === key) throw new Error(`dependency_cycle: task ${JSON.stringify(key)} cannot depend on itself`)
+      if (!keys.has(dependency)) {
+        throw new Error(`dependency_missing: task ${JSON.stringify(key)} references missing dependency ${JSON.stringify(dependency)}`)
+      }
+    }
+  }
+  const remaining = new Map([...dependenciesByKey].map(([key, dependencies]) => [key, dependencies.length]))
+  const dependents = new Map<string, string[]>([...keys].map(key => [key, []]))
+  for (const [key, dependencies] of dependenciesByKey) {
+    for (const dependency of dependencies) dependents.get(dependency)?.push(key)
+  }
+  const ready = [...keys].filter(key => remaining.get(key) === 0)
+  let visited = 0
+  while (ready.length > 0) {
+    const key = ready.shift()
+    if (key === undefined) break
+    visited++
+    for (const dependent of dependents.get(key) ?? []) {
+      const next = (remaining.get(dependent) ?? 0) - 1
+      remaining.set(dependent, next)
+      if (next === 0) ready.push(dependent)
+    }
+  }
+  if (visited !== keys.size) {
+    const cyclic = [...keys].filter(key => (remaining.get(key) ?? 0) > 0)
+    throw new Error(`dependency_cycle: tasks form a cycle involving ${cyclic.map(key => JSON.stringify(key)).join(', ')}`)
+  }
+
+  if (root.failure_mode !== undefined
+    && !['collect_all', 'fail_fast', 'quorum'].includes(String(root.failure_mode))) {
+    throw new Error('arguments.failure_mode is invalid')
+  }
+  const failureMode = (root.failure_mode ?? defaultFailureMode) as InvocationFailureMode
+  if (root.quorum !== undefined) positiveSafeInteger(root.quorum, 'arguments.quorum', root.tasks.length)
+  if (root.failure_mode !== 'quorum' && root.quorum !== undefined) {
+    throw new Error('arguments.quorum is allowed only with failure_mode "quorum"')
+  }
+  if (failureMode === 'quorum' && root.quorum === undefined) {
+    throw new Error('arguments.quorum is required with failure_mode "quorum"')
+  }
+  return {
+    failureMode,
+    ...root.quorum === undefined ? {} : { quorum: root.quorum },
+    dependenciesByKey,
+    dependencyFailureByKey,
+  }
 }
 
 function assertJsonValue(value: unknown, path: string, seen: Set<object>): asserts value is JsonValue {

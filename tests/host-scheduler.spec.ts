@@ -12,7 +12,7 @@ function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): AgentSwarmTo
   return result.value as unknown as AgentSwarmToolValue
 }
 
-describe('AgentSwarm Host v0.1 scheduler', () => {
+describe('AgentSwarm Host v0.2 scheduler', () => {
   it.each([1, 4, 5, 64])('settles %i tasks with bounded concurrency and stable input order', async (count) => {
     const provider = new ScriptedProvider(request => ({
       delayMs: (count - Number(request.label?.split(' ')[1] ?? 0)) % 4,
@@ -36,16 +36,16 @@ describe('AgentSwarm Host v0.1 scheduler', () => {
     expect(events.at(-1)?.type).toBe('tool-agent-swarm/run-end')
   })
 
-  it('rejects oversized and future/identity-bearing input before starting a child', async () => {
+  it('rejects oversized, invalid-policy, and identity-bearing input before starting a child', async () => {
     const mounted = await mountHost(new ScriptedProvider(), { maxTasks: 2 })
 
     for (const args of [
       rootArgs(3),
-      { ...rootArgs(1), failure_mode: 'collect_all' },
+      { ...rootArgs(1), failure_mode: 'future-policy' },
       { ...rootArgs(1), swarmId: 'forged' },
       {
         ...rootArgs(1),
-        tasks: [{ ...rootArgs(1).tasks[0], depends_on: [] }],
+        tasks: [{ ...rootArgs(1).tasks[0], owner: 'forged' }],
       },
     ]) {
       const result = await executeSwarm(mounted.ctx, args)
@@ -54,7 +54,7 @@ describe('AgentSwarm Host v0.1 scheduler', () => {
     expect(mounted.provider.requests).toHaveLength(0)
   })
 
-  it('rejects nested callers at runtime while v0.1 nested mode is disabled', async () => {
+  it('rejects nested callers at runtime while v0.2 nested mode is disabled', async () => {
     const mounted = await mountHost()
     const child = fakeAgent('nested-caller')
     ;(child.options as { subagentDepth?: number }).subagentDepth = 1
@@ -63,12 +63,12 @@ describe('AgentSwarm Host v0.1 scheduler', () => {
     expect(mounted.provider.requests).toHaveLength(0)
   })
 
-  it('publishes only the v0.1 schema, stays exclusive, and replays generic cards from persisted values', async () => {
+  it('publishes the v0.2 schema, stays exclusive, and replays generic cards from persisted values', async () => {
     const mounted = await mountHost()
     const schema = mounted.ctx.tools.schemas().find(candidate => candidate.name === 'agent_swarm')
     if (schema === undefined) throw new Error('agent_swarm schema was not registered')
     expect(Object.keys((schema.parameters as { properties?: Record<string, unknown> }).properties ?? {}).sort())
-      .toEqual(['goal', 'tasks'])
+      .toEqual(['failure_mode', 'goal', 'quorum', 'tasks'])
     expect(mounted.ctx.tools.executionMode({
       callId: 'exclusive' as never,
       name: 'agent_swarm',
@@ -94,7 +94,7 @@ describe('AgentSwarm Host v0.1 scheduler', () => {
     const nativeAssembly = await native.ctx.systemPrompt.assemble()
     expect(nativeAssembly.tools.map(tool => tool.name)).toEqual(['agent_swarm'])
     expect(nativeAssembly.sections.find(section => section.name === 'tool:agent_swarm')?.text)
-      .toContain('complete fixed batch')
+      .toContain('bounded task DAG')
 
     const code = await mountHost(new ScriptedProvider(), {}, { toolMode: 'code' })
     const codeAssembly = await code.ctx.systemPrompt.assemble()
@@ -102,7 +102,7 @@ describe('AgentSwarm Host v0.1 scheduler', () => {
     expect(codeAssembly.sections.find(section => section.name === 'tools:sdk')?.text)
       .toContain('agent_swarm:')
     expect(codeAssembly.sections.find(section => section.name === 'tool:agent_swarm')?.text)
-      .toContain('complete fixed batch')
+      .toContain('bounded task DAG')
   })
 
   it('collects a start rejection while successful siblings continue', async () => {

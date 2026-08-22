@@ -54,6 +54,7 @@ export const zh = {
   'diagnostic.orphan': '父任务缺失',
   'diagnostic.cycle': '检测到父子环',
   'diagnostic.depth-cap': '树深度已截断',
+  'diagnostic.dependency-deadlock': '依赖死锁审计已终止此任务',
 } as const
 
 export type AgentSwarmLocaleKey = keyof typeof zh
@@ -112,4 +113,5 @@ export const en: Record<AgentSwarmLocaleKey, string> = {
   'diagnostic.orphan': 'Parent task is missing',
   'diagnostic.cycle': 'Parent cycle detected',
   'diagnostic.depth-cap': 'Tree depth was capped',
+  'diagnostic.dependency-deadlock': 'Dependency deadlock audit terminated this task',
 }

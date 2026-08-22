@@ -16,6 +16,11 @@ const EVENT_TYPES = new Set([
 ])
 const TERMINAL_TASK_STATES = new Set(['completed', 'failed', 'skipped', 'cancelled', 'timed_out'])
 const ALLOWED_TRANSITIONS = new Set([
+  'waiting>ready',
+  'waiting>failed',
+  'waiting>skipped',
+  'waiting>cancelled',
+  'waiting>timed_out',
   'ready>starting',
   'ready>cancelled',
   'ready>timed_out',
@@ -39,6 +44,7 @@ interface InvocationTrace {
 
 interface TaskTrace {
   readonly invocationId: string
+  readonly dependencies: readonly string[]
   status: string
   currentAttemptId?: string
 }
@@ -94,7 +100,7 @@ function cloneTrace(source: TrajectoryTrace, event: SessionEvent, fail: Invarian
         id,
         { ended: invocation.ended, tasks: new Set(invocation.tasks) },
       ])),
-      tasks: new Map([...sourceRun.tasks].map(([id, task]) => [id, { ...task }])),
+      tasks: new Map([...sourceRun.tasks].map(([id, task]) => [id, { ...task, dependencies: [...task.dependencies] }])),
       attempts: new Map([...sourceRun.attempts].map(([id, attempt]) => [id, { ...attempt }])),
     })
   }
@@ -144,8 +150,10 @@ export function applyTrajectoryEvent(
       if (run.tasks.has(taskId)) fail(`task-created repeats task ${taskId}`)
       if (data.parentTaskId !== undefined) stringId(data.parentTaskId, 'task-created parentTaskId', fail)
       if (!Array.isArray(data.dependencies)) fail('task-created dependencies must be an array')
-      for (const dependency of data.dependencies) stringId(dependency, 'task-created dependency', fail)
-      run.tasks.set(taskId, { invocationId, status: 'ready' })
+      const dependencies = data.dependencies.map(dependency => stringId(dependency, 'task-created dependency', fail))
+      if (new Set(dependencies).size !== dependencies.length) fail(`task-created ${taskId} repeats a dependency`)
+      if (dependencies.includes(taskId)) fail(`task-created ${taskId} depends on itself`)
+      run.tasks.set(taskId, { invocationId, dependencies, status: dependencies.length === 0 ? 'ready' : 'waiting' })
       invocation.tasks.add(taskId)
       return
     }
@@ -216,6 +224,38 @@ export function applyTrajectoryEvent(
         return task === undefined || !TERMINAL_TASK_STATES.has(task.status)
       })
       if (unfinished.length > 0) fail(`invocation-end leaves tasks open: ${unfinished.join(', ')}`)
+      for (const taskId of invocation.tasks) {
+        const task = run.tasks.get(taskId)
+        for (const dependencyId of task?.dependencies ?? []) {
+          const dependency = run.tasks.get(dependencyId)
+          if (dependency === undefined || dependency.invocationId !== invocationId) {
+            fail(`task ${taskId} dependency ${dependencyId} is outside invocation ${invocationId}`)
+          }
+        }
+      }
+      const remaining = new Map([...invocation.tasks].map((taskId) => {
+        const task = run.tasks.get(taskId)
+        return [taskId, task?.dependencies.length ?? 0] as const
+      }))
+      const dependents = new Map([...invocation.tasks].map(taskId => [taskId, [] as string[]]))
+      for (const taskId of invocation.tasks) {
+        for (const dependencyId of run.tasks.get(taskId)?.dependencies ?? []) {
+          dependents.get(dependencyId)?.push(taskId)
+        }
+      }
+      const ready = [...remaining].filter(([, count]) => count === 0).map(([taskId]) => taskId)
+      let visited = 0
+      while (ready.length > 0) {
+        const taskId = ready.shift()
+        if (taskId === undefined) break
+        visited++
+        for (const dependentId of dependents.get(taskId) ?? []) {
+          const count = (remaining.get(dependentId) ?? 0) - 1
+          remaining.set(dependentId, count)
+          if (count === 0) ready.push(dependentId)
+        }
+      }
+      if (visited !== invocation.tasks.size) fail(`invocation ${invocationId} contains a dependency cycle`)
       const openAttempts = [...run.attempts]
         .filter(([, attempt]) => invocation.tasks.has(attempt.taskId) && !attempt.ended)
         .map(([id]) => id)

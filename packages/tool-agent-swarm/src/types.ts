@@ -12,19 +12,35 @@ export type InvocationId = string & { readonly [invocationIdBrand]: true }
 export type SwarmTaskId = string & { readonly [swarmTaskIdBrand]: true }
 export type AttemptId = string & { readonly [attemptIdBrand]: true }
 
+export interface AgentSwarmTaskV01 {
+  readonly key: string
+  readonly description: string
+  readonly objective: string
+  readonly acceptance_criteria: readonly string[]
+  readonly expected_outputs?: readonly string[]
+}
+
 export interface AgentSwarmRootArgsV01 {
   readonly goal: {
     readonly statement: string
     readonly success_criteria: readonly string[]
     readonly constraints?: readonly string[]
   }
-  readonly tasks: readonly {
-    readonly key: string
-    readonly description: string
-    readonly objective: string
-    readonly acceptance_criteria: readonly string[]
-    readonly expected_outputs?: readonly string[]
-  }[]
+  readonly tasks: readonly AgentSwarmTaskV01[]
+}
+
+export type DependencyFailurePolicy = 'fail' | 'skip' | 'partial'
+export type InvocationFailureMode = 'collect_all' | 'fail_fast' | 'quorum'
+
+export interface AgentSwarmTaskV02 extends AgentSwarmTaskV01 {
+  readonly depends_on?: readonly string[]
+  readonly dependency_failure?: DependencyFailurePolicy
+}
+
+export interface AgentSwarmRootArgsV02 extends Omit<AgentSwarmRootArgsV01, 'tasks'> {
+  readonly tasks: readonly AgentSwarmTaskV02[]
+  readonly failure_mode?: InvocationFailureMode
+  readonly quorum?: number
 }
 
 export interface SwarmGoal {
@@ -61,12 +77,14 @@ export type TaskFailureKind =
   | 'structured_result_missing'
   | 'structured_result_invalid'
   | 'structured_result_too_large'
+  | 'dependency_failed'
+  | 'dependency_deadlock'
   | 'cleanup_failed'
   | 'unknown'
 
 export interface TaskFailure {
   readonly kind: TaskFailureKind
-  readonly phase: 'launch' | 'running' | 'finalizing' | 'scheduler'
+  readonly phase: 'launch' | 'running' | 'waiting' | 'finalizing' | 'scheduler'
   readonly scope: 'attempt' | 'task'
   readonly message: string
   readonly code?: string
@@ -94,7 +112,7 @@ export interface AgentSwarmToolValue {
   readonly swarmId: SwarmId
   readonly invocationId: InvocationId
   readonly kind: 'root'
-  readonly terminalReason: 'all_tasks_settled'
+  readonly terminalReason: 'all_tasks_settled' | 'quorum_reached' | 'failed_fast'
   readonly tasks: readonly InvocationTaskResult[]
   readonly summary: {
     readonly completed: number
@@ -118,7 +136,7 @@ export interface Config {
   readonly attemptTimeoutMs?: number
   readonly maxTaskReportChars?: number
   readonly maxRenderedResultChars?: number
-  readonly defaultFailureMode?: 'collect_all'
+  readonly defaultFailureMode?: 'collect_all' | 'fail_fast'
   readonly nestedMode?: 'disabled'
   readonly childAgentOptions?: AgentOptions
   readonly childToolFilter?: ToolRestriction
@@ -134,11 +152,13 @@ export interface ResolvedConfig {
   readonly attemptTimeoutMs: number
   readonly maxTaskReportChars: number
   readonly maxRenderedResultChars: number
+  readonly defaultFailureMode: 'collect_all' | 'fail_fast'
   readonly childAgentOptions?: AgentOptions
   readonly childToolFilter?: ToolRestriction
 }
 
 export type SwarmTaskViewStatus =
+  | 'waiting'
   | 'ready'
   | 'starting'
   | 'running'
@@ -222,7 +242,7 @@ export interface RootInvocationInput {
   readonly rootAgent: Agent
   readonly callId: ToolRunContext['callId']
   readonly commandToken: ToolExecutionToken
-  readonly args: AgentSwarmRootArgsV01
+  readonly args: AgentSwarmRootArgsV02
   readonly signal: AbortSignal
 }
 

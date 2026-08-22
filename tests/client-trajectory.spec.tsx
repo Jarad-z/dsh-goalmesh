@@ -114,6 +114,21 @@ function taskCreated(seq: number, taskId: string, parentTaskId?: string): Conver
   })
 }
 
+function taskCreatedWithDependencies(
+  seq: number,
+  taskId: string,
+  dependencies: readonly string[],
+): ConversationEventInput {
+  const event = taskCreated(seq, taskId)
+  return {
+    ...event,
+    event: {
+      ...event.event,
+      data: { ...(event.event.data as Record<string, unknown>), dependencies },
+    } as ConversationEventInput['event'],
+  }
+}
+
 function completeEvents(): ConversationEventInput[] {
   return [
     at(1, 'turn/start', { turn: 1 }),
@@ -177,6 +192,43 @@ describe('Agent Swarm Conversation Definition', () => {
     expect(replay).toMatchObject({ status: 'partial', settled: 2, total: 2, incomplete: false })
     expect(replay?.roots.map(task => task.taskId)).toEqual(['task-a', 'task-b'])
     expect(replay?.roots[0]?.attempts[0]).toMatchObject({ childId: 'child-a', outcome: 'completed' })
+  })
+
+  it('replays waiting dependencies, reverse dependents, and deadlock audit diagnostics', () => {
+    const value = trajectoryData(assembler([
+      at(1, 'tool-agent-swarm/run-start', {
+        swarmId: 'swarm-1', rootSessionId: 'root', goalSummary: 'Resolve a DAG',
+      }),
+      at(2, 'tool-agent-swarm/invocation-start', {
+        swarmId: 'swarm-1', invocationId: 'invocation-1', callerSessionId: 'root',
+      }),
+      taskCreated(3, 'task-a'),
+      taskCreatedWithDependencies(4, 'task-b', ['task-a']),
+      at(5, 'tool-agent-swarm/task-transition', {
+        swarmId: 'swarm-1', taskId: 'task-a', from: 'ready', to: 'starting',
+      }),
+      at(6, 'tool-agent-swarm/task-transition', {
+        swarmId: 'swarm-1', taskId: 'task-a', from: 'starting', to: 'failed', reason: 'launch_failed',
+      }),
+      at(7, 'tool-agent-swarm/task-transition', {
+        swarmId: 'swarm-1', taskId: 'task-b', from: 'waiting', to: 'failed', reason: 'dependency_deadlock',
+      }),
+      at(8, 'tool-agent-swarm/invocation-end', {
+        swarmId: 'swarm-1', invocationId: 'invocation-1', status: 'partial',
+      }),
+      at(9, 'tool-agent-swarm/run-end', {
+        swarmId: 'swarm-1', status: 'partial', completed: 0, failed: 2,
+        skipped: 0, cancelled: 0, timedOut: 0,
+      }),
+    ]))
+
+    expect(value?.roots[0]).toMatchObject({ taskId: 'task-a', dependents: ['task-b'] })
+    expect(value?.roots[1]).toMatchObject({
+      taskId: 'task-b',
+      dependencies: ['task-a'],
+      status: 'failed',
+      diagnostics: ['dependency-deadlock'],
+    })
   })
 
   it('uses a closed update guard and ignores future same-prefix events', () => {

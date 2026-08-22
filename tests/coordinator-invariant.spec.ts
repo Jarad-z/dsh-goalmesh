@@ -206,6 +206,45 @@ describe('AgentSwarm trajectory invariant', () => {
     expect(() => fold([...valid, valid[7]!])).toThrow(/after run-end/)
     expect(() => fold([{ ...valid[0]!, ignorable: undefined } as unknown as SessionEvent])).toThrow(/ignorable/)
   })
+
+  it('rejects a dependency cycle reconstructed from an otherwise terminal trace', () => {
+    const swarmId = 'swarm-1' as SwarmId
+    const prefix = validTrajectory().slice(0, 2)
+    const task = (seq: number, taskId: string, dependencyId: string): SessionEvent =>
+      trajectoryEvent('tool-agent-swarm/task-created', {
+        swarmId,
+        invocationId: 'inv-1' as never,
+        taskId: taskId as never,
+        key: taskId,
+        label: taskId,
+        objectiveSummary: taskId,
+        acceptanceCriteriaSummary: ['done'],
+        dependencies: [dependencyId as never],
+        depth: 1,
+      }, seq)
+    const terminal = (seq: number, taskId: string): SessionEvent =>
+      trajectoryEvent('tool-agent-swarm/task-transition', {
+        swarmId,
+        taskId: taskId as never,
+        from: 'waiting',
+        to: 'failed',
+        reason: 'dependency_deadlock',
+      }, seq)
+    const end = trajectoryEvent('tool-agent-swarm/invocation-end', {
+      swarmId,
+      invocationId: 'inv-1' as never,
+      status: 'partial',
+    }, 6)
+
+    expect(() => fold([
+      ...prefix,
+      task(2, 'task-a', 'task-b'),
+      task(3, 'task-b', 'task-a'),
+      terminal(4, 'task-a'),
+      terminal(5, 'task-b'),
+      end,
+    ])).toThrow(/dependency cycle/)
+  })
 })
 
 describe('trajectory recorder failure boundary', () => {

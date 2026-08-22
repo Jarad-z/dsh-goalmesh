@@ -1,16 +1,16 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
-import type { AgentSwarmRootArgsV01, AgentSwarmToolValue, ResolvedConfig } from './types.js'
+import type { AgentSwarmRootArgsV02, AgentSwarmToolValue, ResolvedConfig } from './types.js'
 import { SwarmCoordinator, settleInvocationHandle } from './coordinator.js'
 import { AGENT_SWARM_OUTPUT_SCHEMA, ROOT_AGENT_SWARM_PARAMETERS } from './schema.js'
-import { assertRootArgsV01, boundedText } from './validation.js'
+import { assertRootArgsV02, boundedText } from './validation.js'
 
 const ROOT_AGENT_SWARM_DESCRIPTION =
-  'Execute a fixed batch of independent tasks with bounded child-agent concurrency. '
+  'Execute a bounded task DAG with child-agent concurrency. '
   + 'Each child receives the global goal plus one local objective and must return a structured TaskReport. '
-  + 'The call waits for every task, preserves input order, and returns partial failures alongside successful siblings. '
-  + 'This v0.1 tool does not accept task dependencies, failure modes, quorum, or nested swarm calls.'
+  + 'Dependencies support fail, skip, or partial propagation; invocation policy supports collect-all, fail-fast, or quorum. '
+  + 'The call preserves input order and returns settled partial results. Nested swarm calls remain disabled in v0.2.'
 
 type ToolOutputValue = InferValue<typeof AGENT_SWARM_OUTPUT_SCHEMA>
 
@@ -42,7 +42,7 @@ function renderBounded(value: AgentSwarmToolValue, maxChars: number): string {
   return boundedText(JSON.stringify(compact), maxChars)
 }
 
-function callView(args: AgentSwarmRootArgsV01): ToolCallView {
+function callView(args: AgentSwarmRootArgsV02): ToolCallView {
   return {
     card: 'generic',
     kind: 'execute',
@@ -52,7 +52,7 @@ function callView(args: AgentSwarmRootArgsV01): ToolCallView {
 }
 
 function resultView(
-  args: AgentSwarmRootArgsV01,
+  args: AgentSwarmRootArgsV02,
   result: { readonly isError: boolean; readonly meta?: unknown },
 ): ToolResultView {
   if (result.isError) return { card: 'generic', title: `agent_swarm: ${args.tasks.length} tasks failed` }
@@ -89,24 +89,26 @@ export function registerRootAgentSwarmTool(
           settled: swarm.tasks.length,
           completed: swarm.summary.completed,
           failed: swarm.summary.failed,
+          skipped: swarm.summary.skipped,
           aborted: swarm.summary.aborted,
+          terminalReason: swarm.terminalReason,
         }
       },
     },
     async execute(args, exec) {
-      assertRootArgsV01(args as unknown as AgentSwarmRootArgsV01, config.maxTasks)
+      assertRootArgsV02(args as unknown as AgentSwarmRootArgsV02, config.maxTasks, config.defaultFailureMode)
       const caller = exec.agent
       if (caller === undefined) throw new Error('agent_swarm requires a calling agent')
       const value = await settleInvocationHandle(coordinator.invokeRoot({
         rootAgent: caller,
         callId: exec.callId,
         commandToken: exec.token,
-        args: args as unknown as AgentSwarmRootArgsV01,
+        args: args as unknown as AgentSwarmRootArgsV02,
         signal: exec.signal,
       }))
       return value as unknown as ToolOutputValue
     },
-    presentCall: args => callView(args as unknown as AgentSwarmRootArgsV01),
-    presentResult: (args, result) => resultView(args as unknown as AgentSwarmRootArgsV01, result),
+    presentCall: args => callView(args as unknown as AgentSwarmRootArgsV02),
+    presentResult: (args, result) => resultView(args as unknown as AgentSwarmRootArgsV02, result),
   }))
 }

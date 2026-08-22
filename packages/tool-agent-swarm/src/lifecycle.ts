@@ -10,7 +10,7 @@ const SWARM_PROMPT_ORDER = 116.6
 function assertProvider(provider: SubagentProvider): void {
   if (!provider.capabilities.outputSchema || !provider.capabilities.depthLimit) {
     throw new Error(
-      `agent-swarm: provider "${provider.name}" must support outputSchema and depthLimit for v0.1`,
+      `agent-swarm: provider "${provider.name}" must support outputSchema and depthLimit for v0.2`,
     )
   }
 }
@@ -31,8 +31,9 @@ export function bindProviderAndToolLifecycle(
         name: `tool:${config.toolName}`,
         order: SWARM_PROMPT_ORDER,
         text:
-          `Use ${config.toolName} when a goal can be split into independent, self-contained tasks. `
-          + 'Submit the complete fixed batch in one call. After it returns, evaluate the original success criteria '
+          `Use ${config.toolName} when a goal can be split into a bounded task DAG. `
+          + 'Declare dependencies and choose collect-all, fail-fast, or quorum semantics explicitly when needed. '
+          + 'After it returns, evaluate the original success criteria '
           + 'yourself from every direct TaskReport; task completion is not proof that the global goal is achieved.',
       }))
       disposeMounted = () => {
