@@ -27,7 +27,13 @@ export function buildChildPrompt(
   task: TaskGoal,
   toolName: string,
   dependencies: readonly ResolvedDependencyPrompt[] = [],
+  nesting: 'disabled' | 'available' | 'depth-exhausted' = 'disabled',
 ): string {
+  const nestingRule = nesting === 'available'
+    ? `- If this local task needs further independent decomposition, call ${toolName} without a goal and wait for it.`
+    : nesting === 'depth-exhausted'
+      ? `- Do not call ${toolName}; this task is at the configured Swarm depth limit.`
+      : `- Do not call ${toolName}; nested swarm is disabled.`
   return [
     'Global goal (read-only)',
     goal.statement,
@@ -52,7 +58,7 @@ export function buildChildPrompt(
     '',
     'Execution rules',
     '- Complete only this local task; do not claim that the global goal is achieved.',
-    `- Do not call ${toolName} in v0.2; nested swarm is not enabled.`,
+    nestingRule,
     '- Finish by submitting the required structured TaskReport.',
   ].join('\n')
 }

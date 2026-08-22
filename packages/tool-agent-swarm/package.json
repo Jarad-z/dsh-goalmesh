@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-agent-swarm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Host-side DeepSeek Harness Agent Swarm tool.",
   "type": "module",
   "main": "lib/index.js",

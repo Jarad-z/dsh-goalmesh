@@ -10,11 +10,11 @@ const ROOT_AGENT_SWARM_DESCRIPTION =
   'Execute a bounded task DAG with child-agent concurrency. '
   + 'Each child receives the global goal plus one local objective and must return a structured TaskReport. '
   + 'Dependencies support fail, skip, or partial propagation; invocation policy supports collect-all, fail-fast, or quorum. '
-  + 'The call preserves input order and returns settled partial results. Nested swarm calls remain disabled in v0.2.'
+  + 'The call preserves input order and returns settled partial results. Local children may attach nested calls when enabled.'
 
 type ToolOutputValue = InferValue<typeof AGENT_SWARM_OUTPUT_SCHEMA>
 
-function renderBounded(value: AgentSwarmToolValue, maxChars: number): string {
+export function renderBounded(value: AgentSwarmToolValue, maxChars: number): string {
   const serialized = JSON.stringify(value)
   if (serialized.length <= maxChars) return serialized
   const compact = {

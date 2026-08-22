@@ -32,7 +32,13 @@ export function achieved(summary: string): TaskReport {
 export class ScriptedProvider implements SubagentProvider {
   readonly name = 'mock'
   readonly inheritsParentContext = false
-  readonly capabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
+  readonly capabilities = {
+    outputSchema: true,
+    depthLimit: true,
+    toolFilter: true,
+    persona: true,
+    scopedSetup: false,
+  }
   readonly requests: SubagentStartRequest[] = []
   active = 0
   maxActive = 0

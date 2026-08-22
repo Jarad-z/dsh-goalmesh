@@ -4,6 +4,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { TASK_REPORT_JSON_SCHEMA } from './schema.js'
+import { installChildAgentSwarmTool } from './nested-tool.js'
+import type { ScopedSwarmLease } from './nested-tool.js'
 import type {
   AttemptId,
   ResolvedConfig,
@@ -23,6 +25,7 @@ export interface MaterializedTask {
   readonly parentAgent: Agent
   readonly absoluteMaxDepth: number
   readonly signal: AbortSignal
+  readonly lease?: ScopedSwarmLease
 }
 
 export type TaskCompletionOutcome =
@@ -123,6 +126,7 @@ export class SubagentLauncher implements Launcher {
   ) {}
 
   async start(task: MaterializedTask): Promise<LaunchedTask> {
+    const lease = task.lease
     const run: SubagentRun = await this.ctx.subagents.start(this.config.provider, {
       label: task.description,
       prompt: [{ type: 'text', text: task.prompt }],
@@ -132,7 +136,16 @@ export class SubagentLauncher implements Launcher {
       maxDepth: task.absoluteMaxDepth,
       ...this.config.childAgentOptions === undefined ? {} : { agentOptions: this.config.childAgentOptions },
       ...this.config.childToolFilter === undefined ? {} : { toolFilter: this.config.childToolFilter },
+      ...lease === undefined ? {} : {
+        scopedSetup: (childCtx: Context) => { installChildAgentSwarmTool(childCtx, lease, this.config) },
+      },
     })
+
+    if (lease !== undefined && run.localAgent === undefined) {
+      lease.revoke('provider returned a non-local child for local-only nested mode')
+      await run.dispose()
+      throw new Error(`subagent provider "${this.config.provider}" did not publish a local child for nestedMode "local-only"`)
+    }
 
     let disposal: Promise<void> | undefined
     const dispose = (): Promise<void> => {

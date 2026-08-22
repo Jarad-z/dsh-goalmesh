@@ -260,8 +260,13 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
   it('rejects a provider that cannot enforce structured output and depth limits', async () => {
     const provider = new ScriptedProvider()
     Object.defineProperty(provider, 'capabilities', {
-      value: { outputSchema: false, depthLimit: true, toolFilter: true, persona: true },
+      value: { outputSchema: false, depthLimit: true, toolFilter: true, persona: true, scopedSetup: false },
     })
     await expect(mountHost(provider)).rejects.toThrow(/must support outputSchema and depthLimit/)
+  })
+
+  it('rejects nested mode when the provider cannot install child-scoped setup', async () => {
+    await expect(mountHost(new ScriptedProvider(), { nestedMode: 'local-only' }))
+      .rejects.toThrow(/must support scopedSetup for nestedMode "local-only"/)
   })
 })

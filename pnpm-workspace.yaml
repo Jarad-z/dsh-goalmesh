@@ -1,3 +1,5 @@
 packages:
   - packages/*
 autoInstallPeers: false
+overrides:
+  '@deepseek-ai/dsh-invariants': link:../deepseek-harness/packages/runtime-diagnostics/invariants

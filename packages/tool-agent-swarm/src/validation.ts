@@ -1,6 +1,7 @@
 import type { JsonValue } from '@deepseek-ai/dsh-session'
 import type {
   AgentSwarmRootArgsV02,
+  AgentSwarmNestedArgsV03,
   Config,
   DependencyFailurePolicy,
   InvocationFailureMode,
@@ -9,6 +10,7 @@ import type {
 } from './types.js'
 
 const ROOT_KEYS = new Set(['goal', 'tasks', 'failure_mode', 'quorum'])
+const NESTED_KEYS = new Set(['tasks', 'failure_mode', 'quorum'])
 const GOAL_KEYS = new Set(['statement', 'success_criteria', 'constraints'])
 const TASK_KEYS = new Set([
   'key',
@@ -73,10 +75,11 @@ export function resolveConfig(config: Config): ResolvedConfig {
   positiveSafeInteger(maxTaskReportChars, 'config.maxTaskReportChars')
   positiveSafeInteger(maxRenderedResultChars, 'config.maxRenderedResultChars')
   if (!['collect_all', 'fail_fast'].includes(defaultFailureMode)) {
-    throw new Error('config.defaultFailureMode must be "collect_all" or "fail_fast" in v0.2')
+    throw new Error('config.defaultFailureMode must be "collect_all" or "fail_fast"')
   }
-  if (config.nestedMode !== undefined && config.nestedMode !== 'disabled') {
-    throw new Error('config.nestedMode only supports "disabled" in v0.2')
+  const nestedMode = config.nestedMode ?? 'disabled'
+  if (!['disabled', 'local-only'].includes(nestedMode)) {
+    throw new Error('config.nestedMode must be "disabled" or "local-only" in v0.3')
   }
   if (config.childToolFilter !== undefined
     && config.childToolFilter.allow === undefined && config.childToolFilter.deny === undefined) {
@@ -93,6 +96,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     maxTaskReportChars,
     maxRenderedResultChars,
     defaultFailureMode,
+    nestedMode,
     ...config.childAgentOptions === undefined ? {} : { childAgentOptions: config.childAgentOptions },
     ...config.childToolFilter === undefined ? {} : { childToolFilter: config.childToolFilter },
   }
@@ -105,23 +109,18 @@ export interface ValidatedRootArgsV02 {
   readonly dependencyFailureByKey: ReadonlyMap<string, DependencyFailurePolicy>
 }
 
-export function assertRootArgsV02(
-  args: AgentSwarmRootArgsV02,
+export type ValidatedNestedArgsV03 = ValidatedRootArgsV02
+
+function assertInvocationTasks(
+  root: Record<string, unknown>,
   maxTasks: number,
-  defaultFailureMode: ResolvedConfig['defaultFailureMode'] = 'collect_all',
+  defaultFailureMode: ResolvedConfig['defaultFailureMode'],
 ): ValidatedRootArgsV02 {
-  const root = plainRecord(args, 'arguments')
-  assertExactKeys(root, ROOT_KEYS, 'arguments')
-  const goal = plainRecord(root.goal, 'arguments.goal')
-  assertExactKeys(goal, GOAL_KEYS, 'arguments.goal')
-  nonBlank(goal.statement, 'arguments.goal.statement')
-  stringArray(goal.success_criteria, 'arguments.goal.success_criteria', true)
-  if (goal.constraints !== undefined) stringArray(goal.constraints, 'arguments.goal.constraints', false)
   if (!Array.isArray(root.tasks) || root.tasks.length === 0) {
     throw new Error('arguments.tasks must be a non-empty array')
   }
   if (root.tasks.length > maxTasks) {
-    throw new Error(`arguments.tasks exceeds maxTasks (${root.tasks.length} > ${maxTasks})`)
+    throw new Error(`arguments.tasks exceeds remaining maxTasks budget (${root.tasks.length} > ${maxTasks})`)
   }
   const keys = new Set<string>()
   const dependenciesByKey = new Map<string, readonly string[]>()
@@ -203,6 +202,31 @@ export function assertRootArgsV02(
     dependenciesByKey,
     dependencyFailureByKey,
   }
+}
+
+export function assertRootArgsV02(
+  args: AgentSwarmRootArgsV02,
+  maxTasks: number,
+  defaultFailureMode: ResolvedConfig['defaultFailureMode'] = 'collect_all',
+): ValidatedRootArgsV02 {
+  const root = plainRecord(args, 'arguments')
+  assertExactKeys(root, ROOT_KEYS, 'arguments')
+  const goal = plainRecord(root.goal, 'arguments.goal')
+  assertExactKeys(goal, GOAL_KEYS, 'arguments.goal')
+  nonBlank(goal.statement, 'arguments.goal.statement')
+  stringArray(goal.success_criteria, 'arguments.goal.success_criteria', true)
+  if (goal.constraints !== undefined) stringArray(goal.constraints, 'arguments.goal.constraints', false)
+  return assertInvocationTasks(root, maxTasks, defaultFailureMode)
+}
+
+export function assertNestedArgsV03(
+  args: AgentSwarmNestedArgsV03,
+  remainingTasks: number,
+  defaultFailureMode: ResolvedConfig['defaultFailureMode'] = 'collect_all',
+): ValidatedNestedArgsV03 {
+  const root = plainRecord(args, 'arguments')
+  assertExactKeys(root, NESTED_KEYS, 'arguments')
+  return assertInvocationTasks(root, remainingTasks, defaultFailureMode)
 }
 
 function assertJsonValue(value: unknown, path: string, seen: Set<object>): asserts value is JsonValue {

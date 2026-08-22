@@ -32,6 +32,15 @@ const ALLOWED_TRANSITIONS = new Set([
   'running>failed',
   'running>cancelled',
   'running>timed_out',
+  'running>waiting_children',
+  'waiting_children>ready_to_resume',
+  'waiting_children>failed',
+  'waiting_children>cancelled',
+  'waiting_children>timed_out',
+  'ready_to_resume>running',
+  'ready_to_resume>failed',
+  'ready_to_resume>cancelled',
+  'ready_to_resume>timed_out',
 ])
 
 export const name = 'agent-swarm-invariant'
@@ -39,11 +48,14 @@ export const inject = ['invariants']
 
 interface InvocationTrace {
   ended: boolean
+  readonly parentTaskId?: string
   readonly tasks: Set<string>
 }
 
 interface TaskTrace {
   readonly invocationId: string
+  readonly parentTaskId?: string
+  readonly depth: number
   readonly dependencies: readonly string[]
   status: string
   currentAttemptId?: string
@@ -98,7 +110,7 @@ function cloneTrace(source: TrajectoryTrace, event: SessionEvent, fail: Invarian
       ended: sourceRun.ended,
       invocations: new Map([...sourceRun.invocations].map(([id, invocation]) => [
         id,
-        { ended: invocation.ended, tasks: new Set(invocation.tasks) },
+        { ...invocation, tasks: new Set(invocation.tasks) },
       ])),
       tasks: new Map([...sourceRun.tasks].map(([id, task]) => [id, { ...task, dependencies: [...task.dependencies] }])),
       attempts: new Map([...sourceRun.attempts].map(([id, attempt]) => [id, { ...attempt }])),
@@ -134,9 +146,18 @@ export function applyTrajectoryEvent(
       const run = openRun(trace, swarmId, event.type, fail)
       const invocationId = stringId(data.invocationId, 'invocation-start invocationId', fail)
       stringId(data.callerSessionId, 'invocation-start callerSessionId', fail)
-      if (data.parentTaskId !== undefined) stringId(data.parentTaskId, 'invocation-start parentTaskId', fail)
+      const parentTaskId = data.parentTaskId === undefined
+        ? undefined
+        : stringId(data.parentTaskId, 'invocation-start parentTaskId', fail)
+      if (parentTaskId !== undefined && !run.tasks.has(parentTaskId)) {
+        fail(`invocation-start ${invocationId} has no created parent task ${parentTaskId}`)
+      }
       if (run.invocations.has(invocationId)) fail(`invocation-start repeats invocation ${invocationId}`)
-      run.invocations.set(invocationId, { ended: false, tasks: new Set() })
+      run.invocations.set(invocationId, {
+        ended: false,
+        ...parentTaskId === undefined ? {} : { parentTaskId },
+        tasks: new Set(),
+      })
       return
     }
     case 'tool-agent-swarm/task-created': {
@@ -148,12 +169,36 @@ export function applyTrajectoryEvent(
       }
       const taskId = stringId(data.taskId, 'task-created taskId', fail)
       if (run.tasks.has(taskId)) fail(`task-created repeats task ${taskId}`)
-      if (data.parentTaskId !== undefined) stringId(data.parentTaskId, 'task-created parentTaskId', fail)
+      if (!Number.isSafeInteger(data.depth) || (data.depth as number) < 1) {
+        fail(`task-created ${taskId} depth must be a positive safe integer`)
+      }
+      const depth = data.depth as number
+      const parentTaskId = data.parentTaskId === undefined
+        ? undefined
+        : stringId(data.parentTaskId, 'task-created parentTaskId', fail)
+      if (parentTaskId !== invocation.parentTaskId) {
+        fail(`task-created ${taskId} parent does not match invocation ${invocationId}`)
+      }
+      if (parentTaskId === undefined) {
+        if (depth !== 1) fail(`root task-created ${taskId} depth must be 1`)
+      } else {
+        const parent = run.tasks.get(parentTaskId)
+        if (parent === undefined) fail(`task-created ${taskId} has no created parent task ${parentTaskId}`)
+        if (depth !== parent.depth + 1) {
+          fail(`task-created ${taskId} depth ${depth} does not follow parent depth ${parent.depth}`)
+        }
+      }
       if (!Array.isArray(data.dependencies)) fail('task-created dependencies must be an array')
       const dependencies = data.dependencies.map(dependency => stringId(dependency, 'task-created dependency', fail))
       if (new Set(dependencies).size !== dependencies.length) fail(`task-created ${taskId} repeats a dependency`)
       if (dependencies.includes(taskId)) fail(`task-created ${taskId} depends on itself`)
-      run.tasks.set(taskId, { invocationId, dependencies, status: dependencies.length === 0 ? 'ready' : 'waiting' })
+      run.tasks.set(taskId, {
+        invocationId,
+        ...parentTaskId === undefined ? {} : { parentTaskId },
+        depth,
+        dependencies,
+        status: dependencies.length === 0 ? 'ready' : 'waiting',
+      })
       invocation.tasks.add(taskId)
       return
     }
@@ -192,7 +237,8 @@ export function applyTrajectoryEvent(
       if (data.to === 'running' && (attempt === undefined || attempt.ended)) {
         fail(`task-transition starting>running for ${taskId} has no open attempt`)
       }
-      if (data.from === 'running' && TERMINAL_TASK_STATES.has(data.to as string)
+      if (['running', 'waiting_children', 'ready_to_resume'].includes(data.from as string)
+        && TERMINAL_TASK_STATES.has(data.to as string)
         && (attempt === undefined || !attempt.ended)) {
         fail(`terminal task-transition for ${taskId} precedes attempt-end`)
       }
@@ -208,7 +254,9 @@ export function applyTrajectoryEvent(
       const taskId = stringId(data.taskId, 'attempt-end taskId', fail)
       if (attempt.taskId !== taskId) fail(`attempt-end ${attemptId} changed task identity`)
       const task = run.tasks.get(taskId)
-      if (task?.status !== 'running') fail(`attempt-end task ${taskId} is not running`)
+      if (task === undefined || !['running', 'waiting_children', 'ready_to_resume'].includes(task.status)) {
+        fail(`attempt-end task ${taskId} is not executing or waiting on children`)
+      }
       if (task.currentAttemptId !== attemptId) fail(`attempt-end ${attemptId} is not current for task ${taskId}`)
       attempt.ended = true
       return

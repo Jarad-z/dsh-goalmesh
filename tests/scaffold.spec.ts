@@ -7,27 +7,30 @@ async function json(path: string): Promise<Record<string, unknown>> {
 }
 
 describe('three-package scaffold', () => {
-  it('publishes one bundle with the two runtime packages as dependencies', async () => {
+  it('publishes one bundle with its registry and two runtime packages as dependencies', async () => {
     const manifest = await json('../packages/agent-swarm-plugin/package.json')
     expect(manifest.name).toBe('dsh-agent-swarm-plugin')
     expect(manifest.dsh).toEqual({ bundle: { patch: './cordis.patch.yml' } })
     expect(manifest.dependencies).toEqual({
+      '@deepseek-ai/dsh-invariants': '^0.1.0-rc.5',
       'dsh-client-ui-agent-swarm': 'workspace:^',
       'dsh-tool-agent-swarm': 'workspace:^',
     })
   })
 
-  it('inserts the Host, invariant, and Web entries exactly once', async () => {
+  it('inserts the invariant registry, Host, companion, and Web entries exactly once', async () => {
     const source = await readFile(new URL('../packages/agent-swarm-plugin/cordis.patch.yml', import.meta.url), 'utf8')
     const patch = parse(source) as Array<{ insert: Array<{ id: string; name: string; config?: unknown }> }>
     expect(patch).toHaveLength(1)
     expect(patch[0]?.insert.map(({ id, name }) => ({ id, name }))).toEqual([
+      { id: 'agent-swarm-invariants', name: '@deepseek-ai/dsh-invariants' },
       { id: 'agent-swarm', name: 'dsh-tool-agent-swarm' },
       { id: 'agent-swarm-invariant', name: 'dsh-tool-agent-swarm/invariant' },
       { id: 'ui-agent-swarm', name: 'dsh-client-ui-agent-swarm' },
     ])
-    expect(patch[0]?.insert[0]?.config).toEqual({
+    expect(patch[0]?.insert.find(entry => entry.id === 'agent-swarm')?.config).toEqual({
       provider: 'spawn',
+      nestedMode: 'local-only',
       maxConcurrency: 4,
       maxTasks: 64,
       maxDepth: 3,

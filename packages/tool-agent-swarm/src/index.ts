@@ -19,6 +19,7 @@ export type {
   AgentSwarmEventType,
   AgentSwarmRootArgsV01,
   AgentSwarmRootArgsV02,
+  AgentSwarmNestedArgsV03,
   AgentSwarmTaskV01,
   AgentSwarmTaskV02,
   AgentSwarmToolValue,
@@ -27,9 +28,11 @@ export type {
   InvocationId,
   InvocationFailureMode,
   InvocationTaskResult,
+  LeaseToken,
   SwarmId,
   SwarmTaskId,
   SwarmTaskViewStatus,
+  SwarmLease,
   TaskReport,
 } from './types.js'
 

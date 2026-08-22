@@ -15,7 +15,7 @@ export const ConfigSchema = z.object({
   maxTaskReportChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(12_000),
   maxRenderedResultChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(50_000),
   defaultFailureMode: z.union(['collect_all', 'fail_fast'] as const).default('collect_all'),
-  nestedMode: z.const('disabled' as const).default('disabled'),
+  nestedMode: z.union(['disabled', 'local-only'] as const).default('disabled'),
   childAgentOptions: z.object({
     provider: z.string(),
     model: z.string(),
@@ -71,6 +71,12 @@ export const ROOT_AGENT_SWARM_PARAMETERS = {
     enum: ['collect_all', 'fail_fast', 'quorum'] as const,
   },
   quorum: { type: 'integer' as const },
+} as const
+
+export const NESTED_AGENT_SWARM_PARAMETERS = {
+  tasks: ROOT_AGENT_SWARM_PARAMETERS.tasks,
+  failure_mode: ROOT_AGENT_SWARM_PARAMETERS.failure_mode,
+  quorum: ROOT_AGENT_SWARM_PARAMETERS.quorum,
 } as const
 
 export const TASK_REPORT_JSON_SCHEMA: ObjectJsonSchema = {
@@ -139,7 +145,11 @@ export const AGENT_SWARM_OUTPUT_SCHEMA = {
   properties: {
     swarmId: { type: 'string' as const, required: true },
     invocationId: { type: 'string' as const, required: true },
-    kind: { type: 'string' as const, required: true, const: 'root' as const },
+    kind: {
+      type: 'string' as const,
+      required: true,
+      enum: ['root', 'nested'] as const,
+    },
     terminalReason: {
       type: 'string' as const,
       required: true,
@@ -175,7 +185,7 @@ export const AGENT_SWARM_OUTPUT_SCHEMA = {
         failed: { type: 'integer' as const, required: true },
         skipped: { type: 'integer' as const, required: true },
         aborted: { type: 'integer' as const, required: true },
-        descendants: { type: 'integer' as const, required: true, const: 0 },
+        descendants: { type: 'integer' as const, required: true },
         reportedAchieved: { type: 'integer' as const, required: true },
         reportedNotAchieved: { type: 'integer' as const, required: true },
         reportedBlocked: { type: 'integer' as const, required: true },

@@ -245,6 +245,40 @@ describe('AgentSwarm trajectory invariant', () => {
       end,
     ])).toThrow(/dependency cycle/)
   })
+
+  it('rejects nested invocation parents and depths that do not match the durable tree', () => {
+    const swarmId = 'swarm-1' as SwarmId
+    const prefix = validTrajectory().slice(0, 3)
+    const nestedStart = trajectoryEvent('tool-agent-swarm/invocation-start', {
+      swarmId,
+      invocationId: 'inv-nested' as never,
+      parentTaskId: 'task-1' as never,
+      callerSessionId: 'child-1' as never,
+    }, 3)
+    const nestedTask = trajectoryEvent('tool-agent-swarm/task-created', {
+      swarmId,
+      invocationId: 'inv-nested' as never,
+      taskId: 'task-nested' as never,
+      parentTaskId: 'task-1' as never,
+      key: 'nested',
+      label: 'Nested',
+      objectiveSummary: 'Nested objective',
+      acceptanceCriteriaSummary: ['done'],
+      dependencies: [],
+      depth: 3,
+    }, 4)
+
+    expect(() => fold([...prefix, nestedStart, nestedTask])).toThrow(/does not follow parent depth/)
+    expect(() => fold([
+      ...prefix,
+      trajectoryEvent('tool-agent-swarm/invocation-start', {
+        swarmId,
+        invocationId: 'inv-orphan' as never,
+        parentTaskId: 'missing-parent' as never,
+        callerSessionId: 'child-1' as never,
+      }, 3),
+    ])).toThrow(/no created parent task/)
+  })
 })
 
 describe('trajectory recorder failure boundary', () => {

@@ -1,6 +1,13 @@
 export interface DependencyAuditTask<T extends string = string> {
   readonly id: T
-  readonly phase: 'waiting' | 'ready' | 'starting' | 'running' | 'terminal'
+  readonly phase:
+    | 'waiting'
+    | 'ready'
+    | 'starting'
+    | 'running'
+    | 'waiting_children'
+    | 'ready_to_resume'
+    | 'terminal'
 }
 
 /** Return waiting tasks only for the scheduler's otherwise-unresolvable state. */

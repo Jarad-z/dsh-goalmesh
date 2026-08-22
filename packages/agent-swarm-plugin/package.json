@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-swarm-plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Installable DeepSeek Harness bundle for the Agent Swarm tool and Web trajectory companion.",
   "type": "module",
   "main": "index.js",
@@ -14,6 +14,7 @@
     "README.md"
   ],
   "dependencies": {
+    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.5",
     "dsh-client-ui-agent-swarm": "workspace:^",
     "dsh-tool-agent-swarm": "workspace:^"
   },

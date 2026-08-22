@@ -6,11 +6,13 @@ declare const swarmIdBrand: unique symbol
 declare const invocationIdBrand: unique symbol
 declare const swarmTaskIdBrand: unique symbol
 declare const attemptIdBrand: unique symbol
+declare const leaseTokenBrand: unique symbol
 
 export type SwarmId = string & { readonly [swarmIdBrand]: true }
 export type InvocationId = string & { readonly [invocationIdBrand]: true }
 export type SwarmTaskId = string & { readonly [swarmTaskIdBrand]: true }
 export type AttemptId = string & { readonly [attemptIdBrand]: true }
+export type LeaseToken = symbol & { readonly [leaseTokenBrand]: true }
 
 export interface AgentSwarmTaskV01 {
   readonly key: string
@@ -38,6 +40,12 @@ export interface AgentSwarmTaskV02 extends AgentSwarmTaskV01 {
 }
 
 export interface AgentSwarmRootArgsV02 extends Omit<AgentSwarmRootArgsV01, 'tasks'> {
+  readonly tasks: readonly AgentSwarmTaskV02[]
+  readonly failure_mode?: InvocationFailureMode
+  readonly quorum?: number
+}
+
+export interface AgentSwarmNestedArgsV03 {
   readonly tasks: readonly AgentSwarmTaskV02[]
   readonly failure_mode?: InvocationFailureMode
   readonly quorum?: number
@@ -111,7 +119,7 @@ export interface InvocationTaskResult {
 export interface AgentSwarmToolValue {
   readonly swarmId: SwarmId
   readonly invocationId: InvocationId
-  readonly kind: 'root'
+  readonly kind: 'root' | 'nested'
   readonly terminalReason: 'all_tasks_settled' | 'quorum_reached' | 'failed_fast'
   readonly tasks: readonly InvocationTaskResult[]
   readonly summary: {
@@ -119,7 +127,7 @@ export interface AgentSwarmToolValue {
     readonly failed: number
     readonly skipped: number
     readonly aborted: number
-    readonly descendants: 0
+    readonly descendants: number
     readonly reportedAchieved: number
     readonly reportedNotAchieved: number
     readonly reportedBlocked: number
@@ -137,7 +145,7 @@ export interface Config {
   readonly maxTaskReportChars?: number
   readonly maxRenderedResultChars?: number
   readonly defaultFailureMode?: 'collect_all' | 'fail_fast'
-  readonly nestedMode?: 'disabled'
+  readonly nestedMode?: 'disabled' | 'local-only'
   readonly childAgentOptions?: AgentOptions
   readonly childToolFilter?: ToolRestriction
 }
@@ -153,6 +161,7 @@ export interface ResolvedConfig {
   readonly maxTaskReportChars: number
   readonly maxRenderedResultChars: number
   readonly defaultFailureMode: 'collect_all' | 'fail_fast'
+  readonly nestedMode: 'disabled' | 'local-only'
   readonly childAgentOptions?: AgentOptions
   readonly childToolFilter?: ToolRestriction
 }
@@ -162,6 +171,8 @@ export type SwarmTaskViewStatus =
   | 'ready'
   | 'starting'
   | 'running'
+  | 'waiting_children'
+  | 'ready_to_resume'
   | 'completed'
   | 'failed'
   | 'skipped'
@@ -244,6 +255,24 @@ export interface RootInvocationInput {
   readonly commandToken: ToolExecutionToken
   readonly args: AgentSwarmRootArgsV02
   readonly signal: AbortSignal
+}
+
+export interface NestedInvocationInput {
+  readonly callerAgent: Agent
+  readonly callId: ToolRunContext['callId']
+  readonly commandToken: ToolExecutionToken
+  readonly args: AgentSwarmNestedArgsV03
+  readonly signal: AbortSignal
+}
+
+/** Unforgeable, attempt-scoped authority captured by one child-only Tool. */
+export interface SwarmLease {
+  readonly token: LeaseToken
+  readonly swarmId: SwarmId
+  readonly parentTaskId: SwarmTaskId
+  readonly attemptId: AttemptId
+  readonly goalVersion: number
+  invokeNested(input: NestedInvocationInput): InvocationHandle
 }
 
 export interface InvocationHandle {

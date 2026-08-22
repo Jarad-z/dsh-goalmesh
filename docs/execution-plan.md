@@ -23,9 +23,9 @@
 
 **仓库**：`dsh-agent-swarm-plugin`
 
-**产出**：Bundle distribution、Host 包、Web client 包、构建/测试配置、根 README，以及定稿架构和本计划的仓库内副本；Bundle patch 一次插入 Host、Host invariant 与 Web Entry。
+**产出**：Bundle distribution、Host 包、Web client 包、构建/测试配置、根 README，以及定稿架构和本计划的仓库内副本；Bundle patch 一次插入 invariant registry、Host、Host invariant 与 Web Entry，保证默认 Profile 自洽加载。
 
-**验收**：依赖安装、typecheck、空实现 build、package tarball 检查和 patch 静态测试通过；本地 `dsh plugin add` 能解析三个 Entry。
+**验收**：依赖安装、typecheck、空实现 build、package tarball 检查和 patch 静态测试通过；本地 `dsh plugin add` 能解析四个 Entry。
 
 **commit**：`chore: scaffold agent swarm plugin workspace`
 

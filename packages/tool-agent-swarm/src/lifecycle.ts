@@ -7,10 +7,15 @@ import { registerRootAgentSwarmTool } from './tool.js'
 
 const SWARM_PROMPT_ORDER = 116.6
 
-function assertProvider(provider: SubagentProvider): void {
+function assertProvider(provider: SubagentProvider, config: ResolvedConfig): void {
   if (!provider.capabilities.outputSchema || !provider.capabilities.depthLimit) {
     throw new Error(
-      `agent-swarm: provider "${provider.name}" must support outputSchema and depthLimit for v0.2`,
+      `agent-swarm: provider "${provider.name}" must support outputSchema and depthLimit for v0.3`,
+    )
+  }
+  if (config.nestedMode === 'local-only' && !provider.capabilities.scopedSetup) {
+    throw new Error(
+      `agent-swarm: provider "${provider.name}" must support scopedSetup for nestedMode "local-only"`,
     )
   }
 }
@@ -23,7 +28,7 @@ export function bindProviderAndToolLifecycle(
   let disposeMounted: (() => void) | undefined
 
   const mount = (provider: SubagentProvider): void => {
-    assertProvider(provider)
+    assertProvider(provider, config)
     const disposers: (() => void)[] = []
     try {
       disposers.push(registerRootAgentSwarmTool(ctx, coordinator, config))
@@ -33,6 +38,9 @@ export function bindProviderAndToolLifecycle(
         text:
           `Use ${config.toolName} when a goal can be split into a bounded task DAG. `
           + 'Declare dependencies and choose collect-all, fail-fast, or quorum semantics explicitly when needed. '
+          + (config.nestedMode === 'local-only'
+            ? 'Child tasks may recursively call the same child-scoped Tool without repeating the global goal. '
+            : 'Nested decomposition is disabled for this deployment. ')
           + 'After it returns, evaluate the original success criteria '
           + 'yourself from every direct TaskReport; task completion is not proof that the global goal is achieved.',
       }))

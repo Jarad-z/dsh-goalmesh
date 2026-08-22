@@ -1,7 +1,7 @@
 # DSH AgentSwarm Tool 架构设计
 
-- **状态**：实施基线（已核对 DeepSeek Harness `47f943859b` 的 Tool、Subagent、Session 与 Web API）。
-- **目标平台**：DeepSeek Harness `0.1.0-rc.5`，源码基线 `47f943859b`（2026-08-22）。
+- **状态**：0.3 实施基线（已核对并补齐 DeepSeek Harness 的 Tool、Subagent、Session 与 Web API）。
+- **目标平台**：DeepSeek Harness `0.1.0-rc.5`，Harness 前置提交至 `e03b614c79`（2026-08-22）。
 - **输入设计**：`AgentSwarm批调度器设计指南.md`。
 - **交付形态**：一个可安装的 DSH Plugin，向模型注册前台 `agent_swarm` Tool；内部复用 `ctx.subagents` 启动 child Agent。
 
@@ -42,7 +42,7 @@ Host 调度内核仍是一个 npm 包，不新增公开 `ctx.agentSwarm` Service
 
 | 版本 | 能力 | 是否需要修改 Harness |
 |---|---|---|
-| Harness 前置 | 下游 log-only Session event 可显式写入 `ignorable: true` | 是；当前 `Session.append()` 没有该写入参数 |
+| Harness 前置 | 下游 log-only Session event 可显式写入 `ignorable: true` | 已实现：`729b820e44` |
 | `0.1` | root 调用、固定 task 集合、前台 collect-all、并发上限、稳定结果、取消和 timeout；durable trajectory 与 Web 动态树 | AgentSwarm Host 否；需安装 Web client companion |
 | `0.2` | invocation 内静态 DAG、依赖失败传播、fail-fast/quorum | 否 |
 | `0.3` | child 嵌套调用自动 attach 同一 Swarm、`waiting_children` 释放 permit | 是；需要 one-shot child 的 publication 前 scoped setup 能力 |
@@ -94,7 +94,7 @@ AgentSwarm 的首版是前台结构化并发：父 ToolCall 必须等待自己�
 
 ## 3. Plugin 目录设计
 
-新建一个仓库、三个 DSH npm 包。`dsh-agent-swarm-plugin` 是用户安装的 Bundle 包；Host Tool 与 Web client companion 分包，沿用现有 `dsh-tool-workflow` / `dsh-client-ui-workflow-run` 的所有权边界。Bundle 包依赖两个运行包并一次插入 Host、Host invariant companion 与 Web client 三个 Entry：
+新建一个仓库、三个 DSH npm 包。`dsh-agent-swarm-plugin` 是用户安装的 Bundle 包；Host Tool 与 Web client companion 分包，沿用现有 `dsh-tool-workflow` / `dsh-client-ui-workflow-run` 的所有权边界。Bundle 包依赖 invariant registry 与两个运行包，并一次插入 registry、Host、Host invariant companion 与 Web client 四个 Entry：
 
 ```text
 dsh-agent-swarm-plugin/
@@ -104,7 +104,7 @@ dsh-agent-swarm-plugin/
 │  ├─ agent-swarm-plugin/    # 可安装 Bundle distribution
 │  │  ├─ package.json
 │  │  ├─ index.js            # inert node entry
-│  │  └─ cordis.patch.yml    # 一次插入 Host/invariant/Web 三个 Entry
+│  │  └─ cordis.patch.yml    # 一次插入 registry/Host/invariant/Web 四个 Entry
 │  ├─ tool-agent-swarm/      # Host：模型 Tool、共享状态、持久事件
 │  │  ├─ package.json
 │  │  ├─ src/
@@ -135,7 +135,7 @@ dsh-agent-swarm-plugin/
 └─ README.md
 ```
 
-Bundle distribution 的 `package.json` 使用当前 DSH bundle 格式，并把两个运行包声明为普通依赖，保证 Profile 解析 patch 中的裸包名：
+Bundle distribution 的 `package.json` 使用当前 DSH bundle 格式，并把 invariant registry 与两个运行包声明为普通依赖，保证 Profile 解析 patch 中的裸包名。默认 Web Profile 不提供 `invariants` Service，因此 Bundle 必须自带 registry；只插入 companion 会让 Loader 永久等待：
 
 ```json
 {
@@ -143,6 +143,7 @@ Bundle distribution 的 `package.json` 使用当前 DSH bundle 格式，并把�
   "type": "module",
   "main": "index.js",
   "dependencies": {
+    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.5",
     "dsh-tool-agent-swarm": "0.1.0",
     "dsh-client-ui-agent-swarm": "0.1.0"
   },
@@ -154,14 +155,17 @@ Bundle distribution 的 `package.json` 使用当前 DSH bundle 格式，并把�
 }
 ```
 
-Bundle 的 `cordis.patch.yml` 插入三个 Entry。Invariant companion 独立加载，避免产品逻辑依赖诊断开关；Web 包的 node half 是 inert，只有 Web 的 client module scanner 会运行其 browser half：
+Bundle 的 `cordis.patch.yml` 插入四个 Entry。Registry 与 invariant companion 独立于产品逻辑加载；Web 包的 node half 是 inert，只有 Web 的 client module scanner 会运行其 browser half：
 
 ```yaml
 - insert:
+    - id: agent-swarm-invariants
+      name: '@deepseek-ai/dsh-invariants'
     - id: agent-swarm
       name: dsh-tool-agent-swarm
       config:
         provider: spawn
+        nestedMode: local-only
         maxConcurrency: 4
         maxTasks: 64
         maxDepth: 3
@@ -211,7 +215,7 @@ export function apply(ctx: Context, config: Config): void {
 
 Host 注册都通过 `ctx.tools.register()`、child scoped `childCtx.tools.register()`、`ctx.systemPrompt.section()`、`ctx.on()` 或 `ctx.effect()` 完成。Web 只通过 `ctx.conversationEvents.register()` 和 `ctx.slots.register()` 组合 UI；两边都随各自 Fiber 撤销。Coordinator 的 disposer 必须同步关闭 admission，再异步取消并等待所有 run 与 start promise 停稳。
 
-`bindProviderAndToolLifecycle()` 先注册 `subagent/provider-added|removed` listener，再检查 `ctx.subagents.getProvider(config.provider)`，避免检查与订阅之间漏掉同步变更。只有 provider 满足当前版本必需的 `outputSchema/depthLimit`（`0.3` 再加 `scopedSetup`）时才挂载 root Tool 与对应 prompt section；能力不满足在 provider mount 时 fail loud。provider removal 立即撤下 Tool、关闭新 admission，但不撤销已经发布并由 Coordinator 持有的 run；排队 task 后续 start 若 provider 已不存在，按 `launch_failed` 结算。
+`bindProviderAndToolLifecycle()` 先注册 `subagent/provider-added|removed` listener，再检查 `ctx.subagents.getProvider(config.provider)`，避免检查与订阅之间漏掉同步变更。只有 provider 满足 `outputSchema/depthLimit`，并在 `nestedMode: local-only` 下额外满足 `scopedSetup` 时，才挂载 root Tool 与对应 prompt section；能力不满足在 provider mount 时 fail loud。provider removal 立即撤下 Tool、关闭新 admission，但不撤销已经发布并由 Coordinator 持有的 run；排队 task 后续 start 若 provider 已不存在，按 `launch_failed` 结算。
 
 ## 4. 模型可见的 Tool 协议
 
@@ -416,7 +420,7 @@ Config 也按版本开放：`0.1` 不接受 `defaultFailureMode` 的非 `collect
 
 Launcher 传给 DSH 的绝对 `maxDepth` 必须计算为 `delegationDepthOf(rootAgent) + config.maxDepth`；不能把相对 Swarm 深度直接当作 DSH 的绝对 delegation depth。计算溢出在 admission 阶段失败。
 
-当前 `spawn` 与 `fork` provider 同时支持结构化输出和 depth limit，可运行 `0.1/0.2`。当前 ACP、Codex、Claude Code 与 DSH SDK provider 不支持必需的 `outputSchema/depthLimit`，配置成这些 provider 必须在最早可解析时 fail loud；架构图中的 remote provider 是未来兼容目标，不是当前支持声明。`0.3` 还要求 provider 的 `scopedSetup` capability。
+当前 `spawn` 与 `fork` provider 同时支持结构化输出、depth limit 和 `scopedSetup`，可运行 `0.3` local nested。当前 ACP、Codex、Claude Code 与 DSH SDK provider 不支持必需的 `outputSchema/depthLimit/scopedSetup` 组合，配置成这些 provider 必须在最早可解析时 fail loud；架构图中的 remote provider 是未来兼容目标，不是当前支持声明。
 
 ## 6. 运行态
 
@@ -768,11 +772,11 @@ Plugin Fiber
 
 因此 root/nested 不是运行到 Tool body 后再查表猜出来的，而是由 DSH Tool scope 在解析时决定。child Tool 被 Fiber dispose 时自动移除，lease 由 Coordinator 独立 revoke。
 
-### 10.2 当前 Harness 缺口
+### 10.2 Harness scopedSetup 前置（已实现）
 
-当前 in-process driver 内部已经用 `parent.ctx.agents.create({ setup })` 完成 child composition，并在 `agents.create()` 返回后立即由 `drivePublishedRun()` 提交首条 `followup`。缺口不是 Agent 没有 creation setup，而是 `SubagentStartRequest` 没有把 consumer-owned scoped setup 暴露给 `ctx.subagents.start()`。如果等 `start()` 返回后才注册 scoped Tool，仍然晚于 child 的首个 request。
+Harness 的 in-process driver 用 `parent.ctx.agents.create({ setup })` 完成 child composition，并在 `agents.create()` 返回后由 `drivePublishedRun()` 提交首条 `followup`。提交 `e03b614c79` 已把 consumer-owned `scopedSetup` 暴露给 `ctx.subagents.start()`，因此 scoped Tool 会在 publication 和首个 request 前完成安装；实现不能退回到 `start()` 返回后再注册 Tool 的竞态方案。
 
-不要依赖这个时序竞赛。0.3 前先给 subagent seam 增加一个显式、能力受检的 publication 前 scoped setup：
+subagent seam 的 publication 前 setup 是显式且受 capability 检查的：
 
 ```ts
 interface SubagentCapabilities {
@@ -797,6 +801,7 @@ AgentSwarm 的 scoped setup 注册一个 child-scoped 同名 Tool。模型只看
 
 ```ts
 scopedSetup(childCtx) {
+  const caller = childCtx.agent
   childCtx.tools.register(defineTool({
     name: config.toolName,
     description: NESTED_AGENT_SWARM_DESCRIPTION,
@@ -804,12 +809,14 @@ scopedSetup(childCtx) {
     output: AGENT_SWARM_OUTPUT,
     async execute(args, exec) {
       assertNestedArgsV03(args)
-      return await lease.invokeNested({
+      if (exec.agent !== caller) throw new Error('nested caller does not own this lease')
+      return await settleInvocationHandle(lease.invokeNested({
+        callerAgent: caller,
         callId: exec.callId,
         commandToken: exec.token,
         args,
         signal: exec.signal,
-      }).result
+      }))
     },
   }))
   childCtx.effect(
