@@ -8,8 +8,8 @@ import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartReques
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import * as host from '../packages/tool-agent-swarm/src/index.js'
-import type { AgentSwarmRootArgsV02, TaskReport } from '../packages/tool-agent-swarm/src/types.js'
+import * as host from '../packages/tool-goalmesh/src/index.js'
+import type { GoalMeshRootArgsV02, TaskReport } from '../packages/tool-goalmesh/src/types.js'
 
 export interface Behavior {
   readonly delayMs?: number
@@ -135,7 +135,7 @@ export function fakeAgent(id = 'root'): Agent {
   } as unknown as Agent
 }
 
-export function rootArgs(count: number): AgentSwarmRootArgsV02 {
+export function rootArgs(count: number): GoalMeshRootArgsV02 {
   return {
     goal: {
       statement: 'Complete the batch',
@@ -189,7 +189,7 @@ export function executeSwarm(
 ) {
   return ctx.tools.execute({
     callId: CallId(`swarm-call-${++callId}`),
-    name: 'agent_swarm',
+    name: 'goal_mesh',
     arguments: args,
     signal: options.signal ?? new AbortController().signal,
     agent: options.agent ?? fakeAgent(`root-${callId}`),

@@ -4,28 +4,28 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { ToolExecutionToken } from '@deepseek-ai/dsh-tools'
-import { SwarmCoordinator } from '../packages/tool-agent-swarm/src/coordinator.js'
-import { applyTrajectoryEvent } from '../packages/tool-agent-swarm/src/invariant.js'
-import type { LaunchedTask, Launcher, MaterializedTask } from '../packages/tool-agent-swarm/src/launcher.js'
-import { SessionTrajectoryRecorderFactory } from '../packages/tool-agent-swarm/src/recorder.js'
+import { SwarmCoordinator } from '../packages/tool-goalmesh/src/coordinator.js'
+import { applyTrajectoryEvent } from '../packages/tool-goalmesh/src/invariant.js'
+import type { LaunchedTask, Launcher, MaterializedTask } from '../packages/tool-goalmesh/src/launcher.js'
+import { SessionTrajectoryRecorderFactory } from '../packages/tool-goalmesh/src/recorder.js'
 import type {
-  AgentSwarmEventMap,
-  AgentSwarmEventType,
+  GoalMeshEventMap,
+  GoalMeshEventType,
   SwarmId,
   TrajectoryRecorderFactory,
   TrajectorySink,
-} from '../packages/tool-agent-swarm/src/types.js'
-import { resolveConfig } from '../packages/tool-agent-swarm/src/validation.js'
+} from '../packages/tool-goalmesh/src/types.js'
+import { resolveConfig } from '../packages/tool-goalmesh/src/validation.js'
 import { ScriptedProvider, achieved, fakeAgent, rootArgs } from './host-fixture.js'
 
 class MemoryRecorder implements TrajectoryRecorderFactory, TrajectorySink {
-  readonly events: { type: AgentSwarmEventType; data: AgentSwarmEventMap[AgentSwarmEventType] }[] = []
+  readonly events: { type: GoalMeshEventType; data: GoalMeshEventMap[GoalMeshEventType] }[] = []
 
   create(): TrajectorySink {
     return this
   }
 
-  append<T extends AgentSwarmEventType>(type: T, data: AgentSwarmEventMap[T]): void {
+  append<T extends GoalMeshEventType>(type: T, data: GoalMeshEventMap[T]): void {
     this.events.push({ type, data })
   }
 }
@@ -83,7 +83,7 @@ describe('SwarmCoordinator command identity', () => {
     const [firstValue, secondValue] = await Promise.all([first.result, second.result])
     expect(secondValue).toEqual(firstValue)
     expect(launcher.starts).toBe(3)
-    expect(recorder.events.filter(event => event.type === 'tool-agent-swarm/task-created')).toHaveLength(3)
+    expect(recorder.events.filter(event => event.type === 'tool-goalmesh/task-created')).toHaveLength(3)
     await first.dispose()
     await second.dispose()
 
@@ -99,9 +99,9 @@ describe('SwarmCoordinator command identity', () => {
   })
 })
 
-function trajectoryEvent<T extends AgentSwarmEventType>(
+function trajectoryEvent<T extends GoalMeshEventType>(
   type: T,
-  data: AgentSwarmEventMap[T],
+  data: GoalMeshEventMap[T],
   seq: number,
 ): SessionEvent {
   return { type, data, seq, time: seq, ignorable: true } as SessionEvent
@@ -110,17 +110,17 @@ function trajectoryEvent<T extends AgentSwarmEventType>(
 function validTrajectory(): SessionEvent[] {
   const swarmId = 'swarm-1' as SwarmId
   return [
-    trajectoryEvent('tool-agent-swarm/run-start', {
+    trajectoryEvent('tool-goalmesh/run-start', {
       swarmId,
       rootSessionId: 'root' as never,
       goalSummary: 'goal',
     }, 0),
-    trajectoryEvent('tool-agent-swarm/invocation-start', {
+    trajectoryEvent('tool-goalmesh/invocation-start', {
       swarmId,
       invocationId: 'inv-1' as never,
       callerSessionId: 'root' as never,
     }, 1),
-    trajectoryEvent('tool-agent-swarm/task-created', {
+    trajectoryEvent('tool-goalmesh/task-created', {
       swarmId,
       invocationId: 'inv-1' as never,
       taskId: 'task-1' as never,
@@ -131,13 +131,13 @@ function validTrajectory(): SessionEvent[] {
       dependencies: [],
       depth: 1,
     }, 2),
-    trajectoryEvent('tool-agent-swarm/task-transition', {
+    trajectoryEvent('tool-goalmesh/task-transition', {
       swarmId,
       taskId: 'task-1' as never,
       from: 'ready',
       to: 'starting',
     }, 3),
-    trajectoryEvent('tool-agent-swarm/attempt-start', {
+    trajectoryEvent('tool-goalmesh/attempt-start', {
       swarmId,
       taskId: 'task-1' as never,
       attemptId: 'attempt-1' as never,
@@ -147,30 +147,30 @@ function validTrajectory(): SessionEvent[] {
       provider: 'mock',
       local: true,
     }, 4),
-    trajectoryEvent('tool-agent-swarm/task-transition', {
+    trajectoryEvent('tool-goalmesh/task-transition', {
       swarmId,
       taskId: 'task-1' as never,
       from: 'starting',
       to: 'running',
     }, 5),
-    trajectoryEvent('tool-agent-swarm/attempt-end', {
+    trajectoryEvent('tool-goalmesh/attempt-end', {
       swarmId,
       taskId: 'task-1' as never,
       attemptId: 'attempt-1' as never,
       outcome: 'completed',
     }, 6),
-    trajectoryEvent('tool-agent-swarm/task-transition', {
+    trajectoryEvent('tool-goalmesh/task-transition', {
       swarmId,
       taskId: 'task-1' as never,
       from: 'running',
       to: 'completed',
     }, 7),
-    trajectoryEvent('tool-agent-swarm/invocation-end', {
+    trajectoryEvent('tool-goalmesh/invocation-end', {
       swarmId,
       invocationId: 'inv-1' as never,
       status: 'completed',
     }, 8),
-    trajectoryEvent('tool-agent-swarm/run-end', {
+    trajectoryEvent('tool-goalmesh/run-end', {
       swarmId,
       status: 'completed',
       completed: 1,
@@ -188,7 +188,7 @@ function fold(events: readonly SessionEvent[]): void {
   for (const event of events) applyTrajectoryEvent(trace, event, fail)
 }
 
-describe('AgentSwarm trajectory invariant', () => {
+describe('GoalMesh trajectory invariant', () => {
   it('accepts a complete trace and every legal interrupted prefix', () => {
     const events = validTrajectory()
     expect(() => fold(events)).not.toThrow()
@@ -211,7 +211,7 @@ describe('AgentSwarm trajectory invariant', () => {
     const swarmId = 'swarm-1' as SwarmId
     const prefix = validTrajectory().slice(0, 2)
     const task = (seq: number, taskId: string, dependencyId: string): SessionEvent =>
-      trajectoryEvent('tool-agent-swarm/task-created', {
+      trajectoryEvent('tool-goalmesh/task-created', {
         swarmId,
         invocationId: 'inv-1' as never,
         taskId: taskId as never,
@@ -223,14 +223,14 @@ describe('AgentSwarm trajectory invariant', () => {
         depth: 1,
       }, seq)
     const terminal = (seq: number, taskId: string): SessionEvent =>
-      trajectoryEvent('tool-agent-swarm/task-transition', {
+      trajectoryEvent('tool-goalmesh/task-transition', {
         swarmId,
         taskId: taskId as never,
         from: 'waiting',
         to: 'failed',
         reason: 'dependency_deadlock',
       }, seq)
-    const end = trajectoryEvent('tool-agent-swarm/invocation-end', {
+    const end = trajectoryEvent('tool-goalmesh/invocation-end', {
       swarmId,
       invocationId: 'inv-1' as never,
       status: 'partial',
@@ -249,13 +249,13 @@ describe('AgentSwarm trajectory invariant', () => {
   it('rejects nested invocation parents and depths that do not match the durable tree', () => {
     const swarmId = 'swarm-1' as SwarmId
     const prefix = validTrajectory().slice(0, 3)
-    const nestedStart = trajectoryEvent('tool-agent-swarm/invocation-start', {
+    const nestedStart = trajectoryEvent('tool-goalmesh/invocation-start', {
       swarmId,
       invocationId: 'inv-nested' as never,
       parentTaskId: 'task-1' as never,
       callerSessionId: 'child-1' as never,
     }, 3)
-    const nestedTask = trajectoryEvent('tool-agent-swarm/task-created', {
+    const nestedTask = trajectoryEvent('tool-goalmesh/task-created', {
       swarmId,
       invocationId: 'inv-nested' as never,
       taskId: 'task-nested' as never,
@@ -271,7 +271,7 @@ describe('AgentSwarm trajectory invariant', () => {
     expect(() => fold([...prefix, nestedStart, nestedTask])).toThrow(/does not follow parent depth/)
     expect(() => fold([
       ...prefix,
-      trajectoryEvent('tool-agent-swarm/invocation-start', {
+      trajectoryEvent('tool-goalmesh/invocation-start', {
         swarmId,
         invocationId: 'inv-orphan' as never,
         parentTaskId: 'missing-parent' as never,
@@ -291,9 +291,9 @@ describe('trajectory recorder failure boundary', () => {
     const sink = factory.create({ append } as unknown as Session, 'swarm-recorder' as SwarmId)
     const start = validTrajectory()[0]!
     const invocation = validTrajectory()[1]!
-    sink.append(start.type as AgentSwarmEventType, start.data as never)
-    sink.append(invocation.type as AgentSwarmEventType, invocation.data as never)
-    sink.append(invocation.type as AgentSwarmEventType, invocation.data as never)
+    sink.append(start.type as GoalMeshEventType, start.data as never)
+    sink.append(invocation.type as GoalMeshEventType, invocation.data as never)
+    sink.append(invocation.type as GoalMeshEventType, invocation.data as never)
 
     expect(append).toHaveBeenCalledTimes(2)
     expect(warn).toHaveBeenCalledTimes(1)

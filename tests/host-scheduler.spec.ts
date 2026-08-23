@@ -3,16 +3,16 @@ import { Context } from '@deepseek-ai/cordis'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import * as host from '../packages/tool-agent-swarm/src/index.js'
+import * as host from '../packages/tool-goalmesh/src/index.js'
 import { ScriptedProvider, achieved, executeSwarm, fakeAgent, mountHost, rootArgs, until } from './host-fixture.js'
-import type { AgentSwarmToolValue } from '../packages/tool-agent-swarm/src/types.js'
+import type { GoalMeshToolValue } from '../packages/tool-goalmesh/src/types.js'
 
-function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): AgentSwarmToolValue {
+function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): GoalMeshToolValue {
   if (result.isError) throw new Error('expected success')
-  return result.value as unknown as AgentSwarmToolValue
+  return result.value as unknown as GoalMeshToolValue
 }
 
-describe('AgentSwarm Host v0.2 scheduler', () => {
+describe('GoalMesh Host v0.2 scheduler', () => {
   it.each([1, 4, 5, 64])('settles %i tasks with bounded concurrency and stable input order', async (count) => {
     const provider = new ScriptedProvider(request => ({
       delayMs: (count - Number(request.label?.split(' ')[1] ?? 0)) % 4,
@@ -30,10 +30,10 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
     expect(provider.disposed).toBe(count)
     expect(provider.active).toBe(0)
 
-    const events = agent.session.events.filter(event => event.type.startsWith('tool-agent-swarm/'))
+    const events = agent.session.events.filter(event => event.type.startsWith('tool-goalmesh/'))
     expect(events.length).toBeGreaterThan(0)
     expect(events.every(event => event.ignorable === true)).toBe(true)
-    expect(events.at(-1)?.type).toBe('tool-agent-swarm/run-end')
+    expect(events.at(-1)?.type).toBe('tool-goalmesh/run-end')
   })
 
   it('rejects oversized, invalid-policy, and identity-bearing input before starting a child', async () => {
@@ -65,43 +65,43 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
 
   it('publishes the v0.2 schema, stays exclusive, and replays generic cards from persisted values', async () => {
     const mounted = await mountHost()
-    const schema = mounted.ctx.tools.schemas().find(candidate => candidate.name === 'agent_swarm')
-    if (schema === undefined) throw new Error('agent_swarm schema was not registered')
+    const schema = mounted.ctx.tools.schemas().find(candidate => candidate.name === 'goal_mesh')
+    if (schema === undefined) throw new Error('goal_mesh schema was not registered')
     expect(Object.keys((schema.parameters as { properties?: Record<string, unknown> }).properties ?? {}).sort())
       .toEqual(['failure_mode', 'goal', 'quorum', 'tasks'])
     expect(mounted.ctx.tools.executionMode({
       callId: 'exclusive' as never,
-      name: 'agent_swarm',
+      name: 'goal_mesh',
       arguments: rootArgs(2),
       signal: new AbortController().signal,
     })).toEqual({ kind: 'exclusive' })
 
-    const definition = mounted.ctx.tools.get('agent_swarm')
+    const definition = mounted.ctx.tools.get('goal_mesh')
     expect(definition?.presentCall?.(rootArgs(2))).toMatchObject({
       card: 'generic',
-      title: 'agent_swarm: 2 tasks',
+      title: 'goal_mesh: 2 tasks',
       rawInput: 'Complete the batch',
     })
     const result = await executeSwarm(mounted.ctx, rootArgs(2))
     expect(definition?.presentResult?.(rootArgs(2), result)).toMatchObject({
       card: 'generic',
-      title: 'agent_swarm: 2/2 settled',
+      title: 'goal_mesh: 2/2 settled',
     })
   })
 
   it('assembles the real plugin composition in Native and Code Mode', async () => {
     const native = await mountHost()
     const nativeAssembly = await native.ctx.systemPrompt.assemble()
-    expect(nativeAssembly.tools.map(tool => tool.name)).toEqual(['agent_swarm'])
-    expect(nativeAssembly.sections.find(section => section.name === 'tool:agent_swarm')?.text)
+    expect(nativeAssembly.tools.map(tool => tool.name)).toEqual(['goal_mesh'])
+    expect(nativeAssembly.sections.find(section => section.name === 'tool:goal_mesh')?.text)
       .toContain('bounded task DAG')
 
     const code = await mountHost(new ScriptedProvider(), {}, { toolMode: 'code' })
     const codeAssembly = await code.ctx.systemPrompt.assemble()
     expect(codeAssembly.tools.map(tool => tool.name)).toEqual(['run_code'])
     expect(codeAssembly.sections.find(section => section.name === 'tools:sdk')?.text)
-      .toContain('agent_swarm:')
-    expect(codeAssembly.sections.find(section => section.name === 'tool:agent_swarm')?.text)
+      .toContain('goal_mesh:')
+    expect(codeAssembly.sections.find(section => section.name === 'tool:goal_mesh')?.text)
       .toContain('bounded task DAG')
   })
 
@@ -172,7 +172,7 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
     expect(result.isError).toBe(true)
     expect(provider.active).toBe(0)
     expect(provider.disposed).toBe(provider.requests.length)
-    const runEnd = agent.session.events.findLast(event => event.type === 'tool-agent-swarm/run-end')
+    const runEnd = agent.session.events.findLast(event => event.type === 'tool-goalmesh/run-end')
     expect(runEnd?.data).toMatchObject({ status: 'timed_out', timedOut: 3 })
   })
 
@@ -191,9 +191,9 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
     expect(result.isError).toBe(true)
     expect(provider.active).toBe(0)
     expect(provider.disposed).toBe(provider.requests.length)
-    expect(agent.session.events.at(-1)?.type).toBe('tool-agent-swarm/run-end')
+    expect(agent.session.events.at(-1)?.type).toBe('tool-goalmesh/run-end')
     const terminalTransitions = agent.session.events.filter(event =>
-      event.type === 'tool-agent-swarm/task-transition'
+      event.type === 'tool-goalmesh/task-transition'
       && ['completed', 'failed', 'cancelled', 'timed_out'].includes((event.data as { to?: string }).to ?? ''))
     expect(terminalTransitions).toHaveLength(4)
   })
@@ -208,7 +208,7 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
 
     expect(result.isError).toBe(true)
     expect(provider.active).toBe(0)
-    expect(mounted.ctx.tools.schemas().some(schema => schema.name === 'agent_swarm')).toBe(false)
+    expect(mounted.ctx.tools.schemas().some(schema => schema.name === 'goal_mesh')).toBe(false)
   })
 
   it('provider removal unmounts new admission while an admitted collect-all run settles queued launch failures', async () => {
@@ -224,7 +224,7 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
 
     expect(value.summary).toMatchObject({ completed: 2, failed: 2 })
     expect(value.tasks.slice(2).every(task => task.failure?.kind === 'launch_failed')).toBe(true)
-    expect(mounted.ctx.tools.schemas().some(schema => schema.name === 'agent_swarm')).toBe(false)
+    expect(mounted.ctx.tools.schemas().some(schema => schema.name === 'goal_mesh')).toBe(false)
   })
 
   it('waits for its provider, unmounts on removal, and mounts again when the provider returns', async () => {
@@ -233,7 +233,7 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(host, { provider: 'mock' })
-    expect(ctx.tools.schemas().some(schema => schema.name === 'agent_swarm')).toBe(false)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'goal_mesh')).toBe(false)
 
     const first = ctx.plugin({
       name: 'first-provider',
@@ -243,9 +243,9 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
       },
     })
     await first
-    expect(ctx.tools.schemas().some(schema => schema.name === 'agent_swarm')).toBe(true)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'goal_mesh')).toBe(true)
     await first.dispose()
-    expect(ctx.tools.schemas().some(schema => schema.name === 'agent_swarm')).toBe(false)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'goal_mesh')).toBe(false)
 
     await ctx.plugin({
       name: 'second-provider',
@@ -254,7 +254,7 @@ describe('AgentSwarm Host v0.2 scheduler', () => {
         providerCtx.subagents.registerProvider(new ScriptedProvider())
       },
     })
-    expect(ctx.tools.schemas().some(schema => schema.name === 'agent_swarm')).toBe(true)
+    expect(ctx.tools.schemas().some(schema => schema.name === 'goal_mesh')).toBe(true)
   })
 
   it('rejects a provider that cannot enforce structured output and depth limits', async () => {

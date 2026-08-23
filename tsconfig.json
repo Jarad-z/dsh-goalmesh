@@ -1,7 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/tool-agent-swarm" },
-    { "path": "packages/client-ui-agent-swarm" }
+    { "path": "packages/tool-goalmesh" },
+    { "path": "packages/client-ui-goalmesh" }
   ]
 }

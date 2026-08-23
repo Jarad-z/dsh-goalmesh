@@ -1,4 +1,4 @@
-# DSH Agent Swarm Plugin
+# DSH GoalMesh
 
 This repository contains a DeepSeek Harness Plugin, not a Codex Plugin.
 

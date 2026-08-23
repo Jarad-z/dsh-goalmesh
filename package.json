@@ -1,12 +1,23 @@
 {
-  "name": "dsh-agent-swarm-workspace",
+  "name": "dsh-goalmesh-workspace",
   "version": "0.3.0",
   "private": true,
+  "description": "Goal-driven multi-agent orchestration for DeepSeek Harness.",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jarad-z/dsh-goalmesh.git"
+  },
+  "homepage": "https://github.com/Jarad-z/dsh-goalmesh#readme",
+  "bugs": {
+    "url": "https://github.com/Jarad-z/dsh-goalmesh/issues"
+  },
+  "keywords": ["deepseek-harness", "dsh-plugin", "multi-agent", "goal-driven", "agent-orchestration", "dag-scheduler"],
+  "license": "MIT",
   "scripts": {
     "build": "pnpm clean && pnpm typecheck && tsdown",
     "check": "pnpm build && pnpm test:unit && pnpm lint",

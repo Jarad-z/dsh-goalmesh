@@ -1,9 +1,9 @@
-# DSH AgentSwarm 执行计划
+# DSH GoalMesh 执行计划
 
 ## 执行原则
 
-- 架构基线：`dsh-agent-swarm-tool-architecture.md`。
-- 新实现仓库：`D:\harness learning\dsh-agent-swarm-plugin`，由计划点 2 创建并初始化 Git。
+- 架构基线：`dsh-goalmesh-tool-architecture.md`。
+- 新实现仓库：`D:\harness learning\dsh-goalmesh-plugin`，由计划点 2 创建并初始化 Git。
 - Harness 前置改动：`D:\harness learning\deepseek-harness`。该仓库已有与本任务无关的 working tree 修改；每次只按明确路径暂存本计划文件，不改、不暂存、不整理用户改动。
 - 每个编号完成全部代码、文档与聚焦验证后只提交一次；验证失败时继续修复，不用“修复提交”掩盖同一计划点。
 - 计划点 1 和 6 在 `deepseek-harness` 提交；计划点 2、3、4、5、7 在新插件仓库提交。
@@ -21,7 +21,7 @@
 
 ## 计划点 2：创建可安装 Bundle 与三包 workspace
 
-**仓库**：`dsh-agent-swarm-plugin`
+**仓库**：`dsh-goalmesh-plugin`
 
 **产出**：Bundle distribution、Host 包、Web client 包、构建/测试配置、根 README，以及定稿架构和本计划的仓库内副本；Bundle patch 一次插入 invariant registry、Host、Host invariant 与 Web Entry，保证默认 Profile 自洽加载。
 
@@ -31,7 +31,7 @@
 
 ## 计划点 3：实现 0.1 Host 固定批调度与 durable trajectory
 
-**仓库**：`dsh-agent-swarm-plugin`
+**仓库**：`dsh-goalmesh-plugin`
 
 **产出**：Config/provider lifecycle、root Tool schema、TaskReport 收窄与大小限制、Coordinator/Scheduler/Launcher、collect-all、并发限制、attempt/Swarm deadline、取消、quiescent dispose、八类 ignorable trajectory event、Recorder、invariant companion、generic card。
 
@@ -41,7 +41,7 @@
 
 ## 计划点 4：实现 0.1 Web 动态 Agent 树
 
-**仓库**：`dsh-agent-swarm-plugin`
+**仓库**：`dsh-goalmesh-plugin`
 
 **产出**：ConversationNodeDefinition、live/replay/prepend 等价 fold、树与详情面板、locale/CSS、listed Session 与 catalog-proven subagent 导航、remote run 不可导航处理。
 
@@ -51,7 +51,7 @@
 
 ## 计划点 5：实现 0.2 invocation 内 DAG 与 failure mode
 
-**仓库**：`dsh-agent-swarm-plugin`
+**仓库**：`dsh-goalmesh-plugin`
 
 **产出**：版本化 Tool schema、DAG admission、waiting/ready、dependency materialization、fail/skip/partial、fail-fast/quorum、deadlock audit 与 Web 依赖详情。
 
@@ -69,9 +69,9 @@
 
 **commit**：`feat(subagent): add scoped one-shot setup`
 
-## 计划点 7：实现 0.3 nested AgentSwarm
+## 计划点 7：实现 0.3 nested GoalMesh
 
-**仓库**：`dsh-agent-swarm-plugin`
+**仓库**：`dsh-goalmesh-plugin`
 
 **产出**：SwarmLease issue/revoke、child-scoped 同名 Tool、nested barrier、controller 子树、`waiting_children/ready_to_resume`、permit 释放与重获、attempt fencing、分层取消、nested trajectory。
 

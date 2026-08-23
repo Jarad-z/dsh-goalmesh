@@ -1,18 +1,18 @@
-# DSH AgentSwarm Tool 架构设计
+# DSH GoalMesh 架构设计
 
 - **状态**：0.3 实施基线（已核对并补齐 DeepSeek Harness 的 Tool、Subagent、Session 与 Web API）。
 - **目标平台**：DeepSeek Harness `0.1.0-rc.5`，Harness 前置提交至 `e03b614c79`（2026-08-22）。
-- **输入设计**：`AgentSwarm批调度器设计指南.md`。
-- **交付形态**：一个可安装的 DSH Plugin，向模型注册前台 `agent_swarm` Tool；内部复用 `ctx.subagents` 启动 child Agent。
+- **输入设计**：`GoalMesh批调度器设计指南.md`。
+- **交付形态**：一个可安装的 DSH Plugin，向模型注册前台 `goal_mesh` Tool；内部复用 `ctx.subagents` 启动 child Agent。
 
 ## 1. 架构结论
 
-第一版不要把 AgentSwarm 做成另一个 Agent Runtime，也不要把它做成 `Promise.all(ctx.subagents.start(...))`。
+第一版不要把 GoalMesh 做成另一个 Agent Runtime，也不要把它做成 `Promise.all(ctx.subagents.start(...))`。
 
-实现由一个 DSH Host Tool plugin 和一个 Web client companion 组成。Host 包可在 headless Profile 独立运行；可安装 Bundle 同时插入两者，Web Profile 因而始终带 trajectory UI。Host 内部的 `SwarmCoordinator` 创建在插件 Fiber 中，位于所有 root/child Agent 之上；所有 AgentSwarm Tool 变体都把命令提交给这一个共享对象。
+实现由一个 DSH Host Tool plugin 和一个 Web client companion 组成。Host 包可在 headless Profile 独立运行；可安装 Bundle 同时插入两者，Web Profile 因而始终带 trajectory UI。Host 内部的 `SwarmCoordinator` 创建在插件 Fiber 中，位于所有 root/child Agent 之上；所有 GoalMesh Tool 变体都把命令提交给这一个共享对象。
 
 ```text
-agent_swarm Tool Adapter
+goal_mesh Tool Adapter
   root 使用全局 Tool；child 使用同名 agent-scoped Tool，并捕获 SwarmLease
             ↓
 SwarmCoordinator
@@ -34,16 +34,16 @@ TrajectoryRecorder → root Session 的 log-only events
 DSH Web ConversationNodeDefinition → 动态 Agent 树 → child Session 详情
 ```
 
-这正是“传一个共同对象，放在 Agents 更高一级”的实现，但不要把完整可变 `SwarmRun` 直接交给每个 child。child 只拿一个不可伪造、可撤销、绑定当前 attempt 的 `SwarmLease`；它通过 agent-scoped `agent_swarm` Tool 的宿主闭包向共享 Coordinator 发命令。这样共享的是同一份权威账本，写入仍经过单写者队列，不会让兄弟 Agent 直接改彼此的 `Map`。
+这正是“传一个共同对象，放在 Agents 更高一级”的实现，但不要把完整可变 `SwarmRun` 直接交给每个 child。child 只拿一个不可伪造、可撤销、绑定当前 attempt 的 `SwarmLease`；它通过 agent-scoped `goal_mesh` Tool 的宿主闭包向共享 Coordinator 发命令。这样共享的是同一份权威账本，写入仍经过单写者队列，不会让兄弟 Agent 直接改彼此的 `Map`。
 
-Host 调度内核仍是一个 npm 包，不新增公开 `ctx.agentSwarm` Service；Web 只消费 durable events，不是第二个调度 owner。当前只有 Tool Adapter 一个 Host 消费者，公开 Service 会制造没有第二个消费者的能力面。等出现 CLI、RPC、后台控制器或替代 Scheduler Provider 后，再把 Coordinator 提升成正式的 Service Definition / Provider / Consumer seam。
+Host 调度内核仍是一个 npm 包，不新增公开 `ctx.goalMesh` Service；Web 只消费 durable events，不是第二个调度 owner。当前只有 Tool Adapter 一个 Host 消费者，公开 Service 会制造没有第二个消费者的能力面。等出现 CLI、RPC、后台控制器或替代 Scheduler Provider 后，再把 Coordinator 提升成正式的 Service Definition / Provider / Consumer seam。
 
 必须分阶段交付：
 
 | 版本 | 能力 | 是否需要修改 Harness |
 |---|---|---|
 | Harness 前置 | 下游 log-only Session event 可显式写入 `ignorable: true` | 已实现：`729b820e44` |
-| `0.1` | root 调用、固定 task 集合、前台 collect-all、并发上限、稳定结果、取消和 timeout；durable trajectory 与 Web 动态树 | AgentSwarm Host 否；需安装 Web client companion |
+| `0.1` | root 调用、固定 task 集合、前台 collect-all、并发上限、稳定结果、取消和 timeout；durable trajectory 与 Web 动态树 | GoalMesh Host 否；需安装 Web client companion |
 | `0.2` | invocation 内静态 DAG、依赖失败传播、fail-fast/quorum | 否 |
 | `0.3` | child 嵌套调用自动 attach 同一 Swarm、`waiting_children` 释放 permit | 是；需要 one-shot child 的 publication 前 scoped setup 能力 |
 | 后续 | 有限 task rerun、Provider-aware capacity、持久化恢复、effect reconciliation | 需要独立证据后再设计 |
@@ -54,7 +54,7 @@ Host 调度内核仍是一个 npm 包，不新增公开 `ctx.agentSwarm` Service
 
 ### 2.1 直接复用
 
-AgentSwarm 必须复用：
+GoalMesh 必须复用：
 
 - `ctx.tools.register(defineTool(...))`：模型 Tool 的唯一注册与执行入口；
 - `ToolRunContext.agent`：调用者身份与授权来源；
@@ -72,9 +72,9 @@ AgentSwarm 必须复用：
 
 ### 2.2 不复用 `workflow` 作为内部执行器
 
-现有 `workflow` Tool 很适合模型编写 JavaScript 的 map/pipeline/parallel 编排，但它不是 AgentSwarm 的内部实现层：
+现有 `workflow` Tool 很适合模型编写 JavaScript 的 map/pipeline/parallel 编排，但它不是 GoalMesh 的内部实现层：
 
-| 维度 | `workflow` | `agent_swarm` |
+| 维度 | `workflow` | `goal_mesh` |
 |---|---|---|
 | 模型输入 | JavaScript 脚本 | 声明式 Goal + TaskGoal[] |
 | 状态 owner | worker 中的脚本运行 | host 中的 Coordinator |
@@ -84,28 +84,28 @@ AgentSwarm 必须复用：
 | Goal | 没有全局 Goal/局部 TaskGoal 协议 | root Goal 只读，child 执行局部目标 |
 | 适用场景 | 大型但可先写成脚本的编排 | 递归分解、依赖感知、证据聚合 |
 
-不要在 AgentSwarm 内生成 workflow script 再执行。那会产生两套并发、取消、结果和错误账本，也会丢失 task/invocation 的直接身份。
+不要在 GoalMesh 内生成 workflow script 再执行。那会产生两套并发、取消、结果和错误账本，也会丢失 task/invocation 的直接身份。
 
 ### 2.3 不使用 `ctx.jobs`
 
-AgentSwarm 的首版是前台结构化并发：父 ToolCall 必须等待自己的 invocation。`ctx.jobs` 面向已经发布、可独立收集和取消的后台工作，生命周期语义不同。
+GoalMesh 的首版是前台结构化并发：父 ToolCall 必须等待自己的 invocation。`ctx.jobs` 面向已经发布、可独立收集和取消的后台工作，生命周期语义不同。
 
 如果未来要支持 background swarm，应在 root 调用开始前显式选择模式，并让原生 JobRegistry 持有整个 SwarmRun；不能在运行中把前台 Swarm “升级”为后台。
 
 ## 3. Plugin 目录设计
 
-新建一个仓库、三个 DSH npm 包。`dsh-agent-swarm-plugin` 是用户安装的 Bundle 包；Host Tool 与 Web client companion 分包，沿用现有 `dsh-tool-workflow` / `dsh-client-ui-workflow-run` 的所有权边界。Bundle 包依赖 invariant registry 与两个运行包，并一次插入 registry、Host、Host invariant companion 与 Web client 四个 Entry：
+新建一个仓库、三个 DSH npm 包。`dsh-goalmesh-plugin` 是用户安装的 Bundle 包；Host Tool 与 Web client companion 分包，沿用现有 `dsh-tool-workflow` / `dsh-client-ui-workflow-run` 的所有权边界。Bundle 包依赖 invariant registry 与两个运行包，并一次插入 registry、Host、Host invariant companion 与 Web client 四个 Entry：
 
 ```text
-dsh-agent-swarm-plugin/
+dsh-goalmesh-plugin/
 ├─ package.json              # workspace 根，仅 private scripts
 ├─ pnpm-workspace.yaml
 ├─ packages/
-│  ├─ agent-swarm-plugin/    # 可安装 Bundle distribution
+│  ├─ goalmesh-plugin/    # 可安装 Bundle distribution
 │  │  ├─ package.json
 │  │  ├─ index.js            # inert node entry
 │  │  └─ cordis.patch.yml    # 一次插入 registry/Host/invariant/Web 四个 Entry
-│  ├─ tool-agent-swarm/      # Host：模型 Tool、共享状态、持久事件
+│  ├─ tool-goalmesh/      # Host：模型 Tool、共享状态、持久事件
 │  │  ├─ package.json
 │  │  ├─ src/
 │  │  │  ├─ index.ts
@@ -120,7 +120,7 @@ dsh-agent-swarm-plugin/
 │  │  │  ├─ recorder.ts      # root Session trajectory
 │  │  │  └─ invariant.ts    # 作为 ./invariant 子路径发布
 │  │  └─ tests/
-│  └─ client-ui-agent-swarm/ # Web：事件折叠、动态树、Session 导航
+│  └─ client-ui-goalmesh/ # Web：事件折叠、动态树、Session 导航
 │     ├─ package.json
 │     ├─ src/
 │     │  ├─ index.ts         # node half 可保持 inert
@@ -139,13 +139,13 @@ Bundle distribution 的 `package.json` 使用当前 DSH bundle 格式，并把 i
 
 ```json
 {
-  "name": "dsh-agent-swarm-plugin",
+  "name": "dsh-goalmesh-plugin",
   "type": "module",
   "main": "index.js",
   "dependencies": {
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.5",
-    "dsh-tool-agent-swarm": "0.1.0",
-    "dsh-client-ui-agent-swarm": "0.1.0"
+    "dsh-tool-goalmesh": "0.1.0",
+    "dsh-client-ui-goalmesh": "0.1.0"
   },
   "dsh": {
     "bundle": {
@@ -159,10 +159,10 @@ Bundle 的 `cordis.patch.yml` 插入四个 Entry。Registry 与 invariant compan
 
 ```yaml
 - insert:
-    - id: agent-swarm-invariants
+    - id: goalmesh-invariants
       name: '@deepseek-ai/dsh-invariants'
-    - id: agent-swarm
-      name: dsh-tool-agent-swarm
+    - id: goalmesh
+      name: dsh-tool-goalmesh
       config:
         provider: spawn
         nestedMode: local-only
@@ -173,10 +173,10 @@ Bundle 的 `cordis.patch.yml` 插入四个 Entry。Registry 与 invariant compan
         attemptTimeoutMs: 300000
         maxTaskReportChars: 12000
         maxRenderedResultChars: 50000
-    - id: agent-swarm-invariant
-      name: dsh-tool-agent-swarm/invariant
-    - id: ui-agent-swarm
-      name: dsh-client-ui-agent-swarm
+    - id: goalmesh-invariant
+      name: dsh-tool-goalmesh/invariant
+    - id: ui-goalmesh
+      name: dsh-client-ui-goalmesh
 ```
 
 Web companion 在自己的 `package.json` 声明 client bundle metadata：
@@ -199,7 +199,7 @@ Web companion 在自己的 `package.json` 声明 client bundle metadata：
 插件入口：
 
 ```ts
-export const name = 'agent-swarm'
+export const name = 'goalmesh'
 export const inject = ['tools', 'subagents', 'systemPrompt']
 
 export function apply(ctx: Context, config: Config): void {
@@ -208,7 +208,7 @@ export function apply(ctx: Context, config: Config): void {
   bindProviderAndToolLifecycle(ctx, coordinator, config)
   ctx.effect(
     () => async () => { await coordinator.dispose() },
-    'agent-swarm.coordinator()',
+    'goalmesh.coordinator()',
   )
 }
 ```
@@ -221,10 +221,10 @@ Host 注册都通过 `ctx.tools.register()`、child scoped `childCtx.tools.regis
 
 ### 4.1 Tool 参数
 
-Tool 名默认为 `agent_swarm`。root 与 nested 使用同名但不同的参数 schema；发布的 schema 必须跟随版本能力，不能提前接受尚未实现的字段：
+Tool 名默认为 `goal_mesh`。root 与 nested 使用同名但不同的参数 schema；发布的 schema 必须跟随版本能力，不能提前接受尚未实现的字段：
 
 ```ts
-interface AgentSwarmRootArgsV01 {
+interface GoalMeshRootArgsV01 {
   readonly goal: {
     readonly statement: string
     readonly success_criteria: readonly string[]
@@ -241,8 +241,8 @@ interface AgentSwarmRootArgsV01 {
   }[]
 }
 
-interface AgentSwarmRootArgsV02 extends AgentSwarmRootArgsV01 {
-  readonly tasks: readonly (AgentSwarmRootArgsV01['tasks'][number] & {
+interface GoalMeshRootArgsV02 extends GoalMeshRootArgsV01 {
+  readonly tasks: readonly (GoalMeshRootArgsV01['tasks'][number] & {
     readonly depends_on?: readonly string[]
     readonly dependency_failure?: 'fail' | 'skip' | 'partial'
   })[]
@@ -250,7 +250,7 @@ interface AgentSwarmRootArgsV02 extends AgentSwarmRootArgsV01 {
   readonly quorum?: number
 }
 
-interface AgentSwarmNestedArgsV03 extends Omit<AgentSwarmRootArgsV02, 'goal'> {}
+interface GoalMeshNestedArgsV03 extends Omit<GoalMeshRootArgsV02, 'goal'> {}
 ```
 
 `defineTool()` 当前把参数编译为隐式开放的顶层 object。两个 Adapter 因此必须先执行 exact-key 检查，再做 schema 之外的交叉校验；不能只依赖 TypeScript 推断或忽略未知字段：
@@ -311,7 +311,7 @@ Resolved dependency results
 
 Execution rules
 - 只完成本地任务，不宣称全局 Goal 已完成。
-- 需要进一步独立分解时，调用 agent_swarm；省略 goal 并等待返回。
+- 需要进一步独立分解时，调用 goal_mesh；省略 goal 并等待返回。
 - 最后按 structured_output schema 提交 TaskReport。
 ```
 
@@ -333,7 +333,7 @@ interface InvocationTaskResult {
   }
 }
 
-interface AgentSwarmToolValue {
+interface GoalMeshToolValue {
   readonly swarmId: string
   readonly invocationId: string
   readonly kind: 'root' | 'nested'
@@ -365,7 +365,7 @@ root ToolResult 返回时，结构化等待保证所有前台后代已经 termin
 
 ### 4.4 Tool 调度模式与 UI
 
-`agent_swarm` 不声明 `isConcurrencySafe`，保持 exclusive：
+`goal_mesh` 不声明 `isConcurrencySafe`，保持 exclusive：
 
 - nested 调用会改变 caller task 的 `running/waiting_children` 状态；
 - 避免同一个 child 在一次 assistant response 中并行开启多个 nested invocation，导致 permit 重入语义复杂化；
@@ -373,9 +373,9 @@ root ToolResult 返回时，结构化等待保证所有前台后代已经 termin
 
 UI 使用 generic card：
 
-- pending title：`agent_swarm: <N> tasks`；
+- pending title：`goal_mesh: <N> tasks`；
 - rawInput：Goal statement 或 task description 列表；
-- completed title：`agent_swarm: <completed>/<total> settled`。
+- completed title：`goal_mesh: <completed>/<total> settled`。
 
 `presentCall` 只能读取 args；`output.presentationMeta` 生成有界摘要，`presentResult` 只能读取 args、`result.content/isError` 与 `result.meta`，不能读取 Coordinator live state 或规范返回值的进程内引用。
 
@@ -696,12 +696,12 @@ const run = await ctx.subagents.start(config.provider, {
   agentOptions: config.childAgentOptions,
   toolFilter: config.childToolFilter,
   ...(lease === undefined ? {} : {
-    scopedSetup: childCtx => installChildAgentSwarmTool(childCtx, lease),
+    scopedSetup: childCtx => installChildGoalMeshTool(childCtx, lease),
   }),
 })
 ```
 
-其中 `scopedSetup` 是 0.3 需要补进 subagent seam 的能力；0.1/0.2 的 `nestedMode: disabled` 不传它。`childToolFilter` 只限制 global Tool，DSH 明确保证 scoped registration 仍可见，因此它不会隐藏后注册的 child-scoped `agent_swarm`。
+其中 `scopedSetup` 是 0.3 需要补进 subagent seam 的能力；0.1/0.2 的 `nestedMode: disabled` 不传它。`childToolFilter` 只限制 global Tool，DSH 明确保证 scoped registration 仍可见，因此它不会隐藏后注册的 child-scoped `goal_mesh`。
 
 然后同时观察 `run.result` 与 `run.dispose()`。业务结果失败和清理失败是正交结果：
 
@@ -718,12 +718,12 @@ const run = await ctx.subagents.start(config.provider, {
 - Provider 请求层的 429/短暂错误交给已存在的 `llm-retry`；
 - Scheduler 不通过错误字符串重新实现 Provider 429 策略；
 - 未来 task rerun 只能明确表示“创建新 child 从头执行”；
-- “同 Agent retry”必须先扩展 subagent seam，不能在 AgentSwarm 文档里假装已经存在。
+- “同 Agent retry”必须先扩展 subagent seam，不能在 GoalMesh 文档里假装已经存在。
 
 ## 9. root 调用生命周期
 
 ```text
-模型调用 agent_swarm(goal, tasks)
+模型调用 goal_mesh(goal, tasks)
   → global Tool Adapter 从 exec.agent 取得 root owner
   → Coordinator 以 exec.token 去重
   → 单写者 commit SwarmRun + root Invocation + tasks
@@ -739,7 +739,7 @@ const run = await ctx.subagents.start(config.provider, {
   → root barrier 清零且全局账本一致
   → 确认 active run 与 in-flight start 全部停稳
   → append invocation-end / run-end
-  → 返回唯一 AgentSwarmToolValue
+  → 返回唯一 GoalMeshToolValue
 ```
 
 root `exec.signal` abort：
@@ -760,14 +760,14 @@ abort Swarm controller
 
 ### 10.1 scoped capability injection
 
-child 调用 `agent_swarm` 时不传 `swarmId`。它看到的是创建窗口中注册的 agent-scoped 同名 Tool，该 Tool 的宿主闭包已经捕获 exact `SwarmLease`：
+child 调用 `goal_mesh` 时不传 `swarmId`。它看到的是创建窗口中注册的 agent-scoped 同名 Tool，该 Tool 的宿主闭包已经捕获 exact `SwarmLease`：
 
 ```text
 Plugin Fiber
 └─ shared SwarmCoordinator
-   ├─ global agent_swarm Tool → invokeRoot()
+   ├─ global goal_mesh Tool → invokeRoot()
    └─ child Agent scope
-      └─ scoped agent_swarm Tool → captured lease.invokeNested()
+      └─ scoped goal_mesh Tool → captured lease.invokeNested()
 ```
 
 因此 root/nested 不是运行到 Tool body 后再查表猜出来的，而是由 DSH Tool scope 在解析时决定。child Tool 被 Fiber dispose 时自动移除，lease 由 Coordinator 独立 revoke。
@@ -795,18 +795,18 @@ interface SubagentStartRequest {
 - spawn/fork in-process provider 在现有 `applyChildComposition()` 之后调用它，并把返回值原样交给 `agents.create({ setup })`；Agent publication 与首个 `followup` 都发生在它完成之后；
 - scoped setup 的注册归 child Agent scope；setup/commit 失败回滚整个未发布 child，child dispose 自动撤销已发布注册；
 - ACP/Codex/Claude Code 等 remote provider 声明 `scopedSetup: false`；
-- AgentSwarm `nestedMode: local-only` 要求 provider 支持此能力，插件加载或首次可解析 provider 时失败，而不是静默降级。
+- GoalMesh `nestedMode: local-only` 要求 provider 支持此能力，插件加载或首次可解析 provider 时失败，而不是静默降级。
 
-AgentSwarm 的 scoped setup 注册一个 child-scoped 同名 Tool。模型只看到普通 Tool schema；共享 Coordinator 与 lease 只存在于宿主闭包：
+GoalMesh 的 scoped setup 注册一个 child-scoped 同名 Tool。模型只看到普通 Tool schema；共享 Coordinator 与 lease 只存在于宿主闭包：
 
 ```ts
 scopedSetup(childCtx) {
   const caller = childCtx.agent
   childCtx.tools.register(defineTool({
     name: config.toolName,
-    description: NESTED_AGENT_SWARM_DESCRIPTION,
-    parameters: NESTED_AGENT_SWARM_PARAMETERS,
-    output: AGENT_SWARM_OUTPUT,
+    description: NESTED_GOAL_MESH_DESCRIPTION,
+    parameters: NESTED_GOAL_MESH_PARAMETERS,
+    output: GOAL_MESH_OUTPUT,
     async execute(args, exec) {
       assertNestedArgsV03(args)
       if (exec.agent !== caller) throw new Error('nested caller does not own this lease')
@@ -821,7 +821,7 @@ scopedSetup(childCtx) {
   }))
   childCtx.effect(
     () => () => coordinator.revokeLease(lease.token, 'child scope disposed'),
-    'agent-swarm.lease()',
+    'goalmesh.lease()',
   )
 }
 ```
@@ -831,7 +831,7 @@ scopedSetup(childCtx) {
 
 ```text
 父 child 正在 running
-  → 调用 nested agent_swarm(tasks only)
+  → 调用 nested goal_mesh(tasks only)
   → 校验 lease token、revocation 与 attempt fencing
   → 原子创建 nested Invocation + child tasks
   → parent task: running → waiting_children
@@ -935,7 +935,7 @@ type RunFailureKind = 'deadline_exceeded' | 'cancelled' | 'plugin_disposed' | 's
 
 DSH 映射：
 
-| DSH 结果 | AgentSwarm 终态 |
+| DSH 结果 | GoalMesh 终态 |
 |---|---|
 | `SubagentResult.stopReason === completed` 且 `structured` 通过 TaskReport 收窄与大小检查 | completed |
 | `completed` 但缺少 structured | `structured_result_missing` |
@@ -958,7 +958,7 @@ DSH 映射：
 1. DSH request 层已经拥有 Provider retry；
 2. one-shot SubagentRun 不支持 same-agent retry；
 3. task 可能使用具有副作用的工具；
-4. AgentSwarm 尚无 effect ledger/reconciliation；
+4. GoalMesh 尚无 effect ledger/reconciliation；
 5. 盲目新建 child 会重复写外部世界。
 
 未来加入 rerun 时，TaskSpec 必须先声明 `effects: 'none' | 'idempotent' | 'unknown'`，且只允许 typed transient failure、预算未耗尽、旧 run 已确认停稳时新建 child。
@@ -994,12 +994,12 @@ DSH 映射：
 ### 14.1 端到端数据流
 
 ```text
-root / child scoped agent_swarm Tool
+root / child scoped goal_mesh Tool
               ↓ command
 共享 SwarmCoordinator 单写者 commit
               ↓ committed transition
 TrajectoryRecorder
-              ↓ Session.append("tool-agent-swarm/*")
+              ↓ Session.append("tool-goalmesh/*")
 root caller Session（包括所有 nested 后代）
               ↓ DSH 已有 Session 实时流 / 历史加载
 ConversationNodeDefinition 按 swarmId fold
@@ -1013,17 +1013,17 @@ SessionRuntime.open() / openSubagent() → child 完整 Session
 
 ### 14.2 Durable event 协议
 
-Host Tool package 在 root caller Session 写 browser-safe、log-only 事件。它与仓库内 `dsh-tool-workflow` 的关键差异是：AgentSwarm 属于下游包，不在 Harness 构建时生成的 `KNOWN_SESSION_EVENT_TYPES` 中。Harness 前置改动必须让 non-surface `Session.append()` 接受 `{ ignorable: true }`，Recorder 每次都显式传入；否则持久化后连安装了插件的同一 Harness 构建也会拒绝重载 Session。
+Host Tool package 在 root caller Session 写 browser-safe、log-only 事件。它与仓库内 `dsh-tool-workflow` 的关键差异是：GoalMesh 属于下游包，不在 Harness 构建时生成的 `KNOWN_SESSION_EVENT_TYPES` 中。Harness 前置改动必须让 non-surface `Session.append()` 接受 `{ ignorable: true }`，Recorder 每次都显式传入；否则持久化后连安装了插件的同一 Harness 构建也会拒绝重载 Session。
 
 ```text
-tool-agent-swarm/run-start
-tool-agent-swarm/invocation-start
-tool-agent-swarm/task-created
-tool-agent-swarm/attempt-start
-tool-agent-swarm/task-transition
-tool-agent-swarm/attempt-end
-tool-agent-swarm/invocation-end
-tool-agent-swarm/run-end
+tool-goalmesh/run-start
+tool-goalmesh/invocation-start
+tool-goalmesh/task-created
+tool-goalmesh/attempt-start
+tool-goalmesh/task-transition
+tool-goalmesh/attempt-end
+tool-goalmesh/invocation-end
+tool-goalmesh/run-end
 ```
 
 事件 payload 只存树和诊断所需的有界事实，不复制 child 的完整 prompt、assistant token stream 或工具调用；这些细节继续由 child Session 持有：
@@ -1118,14 +1118,14 @@ interface SwarmRunEndData extends SwarmEventBase {
 
 ### 14.3 Web 事件折叠
 
-Web companion 注册一个 `ConversationNodeDefinition<SwarmTrajectoryState>`，`kind` 与 keyed renderer 都使用 `agent-swarm-trajectory`：
+Web companion 注册一个 `ConversationNodeDefinition<SwarmTrajectoryState>`，`kind` 与 keyed renderer 都使用 `goalmesh-trajectory`：
 
 ```ts
 const swarmTrajectoryDefinition: ConversationNodeDefinition<SwarmTrajectoryState> = {
-  kind: 'agent-swarm-trajectory',
+  kind: 'goalmesh-trajectory',
   target: 'chat',
   match(event) {
-    if (event.type === 'tool-agent-swarm/run-start') {
+    if (event.type === 'tool-goalmesh/run-start') {
       return { id: String(event.data.swarmId), role: 'start' }
     }
     if (isSwarmUpdateEvent(event)) {
@@ -1219,17 +1219,17 @@ Swarm <goal summary>                         running  3/7
 ## 15. Tool Adapter 骨架
 
 ```ts
-export function registerRootAgentSwarmTool(
+export function registerRootGoalMeshTool(
   ctx: Context,
   coordinator: SwarmCoordinator,
   config: ResolvedConfig,
 ): void {
   ctx.tools.register(defineTool({
     name: config.toolName,
-    description: ROOT_AGENT_SWARM_DESCRIPTION,
-    parameters: ROOT_AGENT_SWARM_PARAMETERS,
+    description: ROOT_GOAL_MESH_DESCRIPTION,
+    parameters: ROOT_GOAL_MESH_PARAMETERS,
     output: {
-      schema: AGENT_SWARM_OUTPUT,
+      schema: GOAL_MESH_OUTPUT,
       render: (_args, value) => [{
         type: 'text',
         text: renderBoundedSwarmResult(value, config.maxRenderedResultChars),
@@ -1241,7 +1241,7 @@ export function registerRootAgentSwarmTool(
       assertRootArgsV01(args)
       const caller = exec.agent
       if (caller === undefined) {
-        throw new Error('agent_swarm requires a calling agent')
+        throw new Error('goal_mesh requires a calling agent')
       }
 
       const invocation = coordinator.invokeRoot({
@@ -1254,8 +1254,8 @@ export function registerRootAgentSwarmTool(
 
       return await settleInvocationHandle(invocation)
     },
-    presentCall: presentAgentSwarmCall,
-    presentResult: presentAgentSwarmResult,
+    presentCall: presentGoalMeshCall,
+    presentResult: presentGoalMeshResult,
   }))
 }
 ```
@@ -1302,7 +1302,7 @@ export function registerRootAgentSwarmTool(
 
 ### 16.3 `0.3` 增加
 
-- child 在 publication 与首个 request 前已有捕获 exact lease 的 scoped `agent_swarm` Tool；
+- child 在 publication 与首个 request 前已有捕获 exact lease 的 scoped `goal_mesh` Tool；
 - nested 调用自动 attach 且拒绝 goal；
 - 没有该 scoped Tool/lease 的 Agent 不能用伪造 ID 附着已有 Swarm；
 - parent waiting_children 释放 permit，`maxConcurrency=1` 时后代仍能运行；
@@ -1325,7 +1325,7 @@ export function registerRootAgentSwarmTool(
 - Session subsystem/README 双语契约与 Agent Note；
 - focused unit、persistence contract、typecheck、doc gates。
 
-这不是 AgentSwarm event registry。它只开放 Session envelope 已经存在但 writer API 尚未暴露的 unknown-event skip marker；AgentSwarm invariant/client companion 仍负责理解自己的 payload。
+这不是 GoalMesh event registry。它只开放 Session envelope 已经存在但 writer API 尚未暴露的 unknown-event skip marker；GoalMesh invariant/client companion 仍负责理解自己的 payload。
 
 ### PR 1：可安装 Bundle 与 Host 固定批 Tool + durable trajectory
 
@@ -1343,7 +1343,7 @@ export function registerRootAgentSwarmTool(
 
 ### PR 2：Web 动态 Agent 树
 
-在 `client-ui-agent-swarm` 包完成：
+在 `client-ui-goalmesh` 包完成：
 
 - browser-safe event types 依赖；
 - `ConversationNodeDefinition` 的 live/replay/prepend fold；
@@ -1374,7 +1374,7 @@ export function registerRootAgentSwarmTool(
 
 这项改动必须先独立证明：scoped setup 在 publication 和首个 request 前完成，失败会完整 rollback，child dispose 会撤销 scoped 注册。
 
-### PR 5：nested AgentSwarm
+### PR 5：nested GoalMesh
 
 - issue/revoke `SwarmLease`，child-scoped 同名 Tool 捕获 exact lease；
 - `waiting_children/ready_to_resume`；
@@ -1399,7 +1399,7 @@ export function registerRootAgentSwarmTool(
 
 `0.1` 可以称为可用 DSH Tool + Web trajectory 的最低标准：
 
-- Profile 加载后模型能看到一个 `agent_swarm` Tool；Fiber dispose 后该 Tool 消失。
+- Profile 加载后模型能看到一个 `goal_mesh` Tool；Fiber dispose 后该 Tool 消失。
 - 一次调用可提交多个独立 TaskGoal，并通过配置限制总数和并发。
 - child 全部通过真实 `ctx.subagents` Provider 运行，不直接构造 AgentLoop。
 - 每个 child 必须返回结构化 TaskReport；缺失或非法结果不会伪装成功。
@@ -1435,4 +1435,4 @@ PR 0 + PR 1 + PR 2 达到这些标准后，再进入 DAG 和 nested attach；不
 - `deepseek-harness/packages/client/runtime/src/client/contract/sessions.ts`：`subagentAddress()`、`refreshSubagents()` 与导航权限。
 - `deepseek-harness/packages/util/timeout/src/index.ts`：可分类的 deadline 与 signal fusion。
 - `deepseek-harness/docs/cookbook/adding-a-tool.md`：DSH Tool authoring 契约。
-- `AgentSwarm批调度器设计指南.md`：SwarmRun/Invocation/Task/Attempt 分层、结构化等待、DAG 与错误恢复输入。
+- `GoalMesh批调度器设计指南.md`：SwarmRun/Invocation/Task/Attempt 分层、结构化等待、DAG 与错误恢复输入。

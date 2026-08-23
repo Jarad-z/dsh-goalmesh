@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">DSH GoalMesh</title>
+  <desc id="desc">Goal-driven multi-agent orchestration for DeepSeek Harness</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#070b18"/><stop offset=".52" stop-color="#111733"/><stop offset="1" stop-color="#091f28"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8b5cf6"/><stop offset=".5" stop-color="#4f8cff"/><stop offset="1" stop-color="#20d9b5"/></linearGradient>
+    <radialGradient id="halo"><stop offset="0" stop-color="#7c5cff" stop-opacity=".34"/><stop offset="1" stop-color="#7c5cff" stop-opacity="0"/></radialGradient>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="7" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="#b8c3ff" stroke-opacity=".055"/></pattern>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#bg)"/><rect width="1200" height="420" rx="28" fill="url(#grid)"/><circle cx="942" cy="204" r="250" fill="url(#halo)"/><path d="M0 419H1200" stroke="url(#accent)" stroke-width="2" opacity=".75"/>
+  <g opacity=".8" stroke-linecap="round"><path d="M842 202 934 108M842 202 974 208M842 202 927 309M934 108 1062 145M974 208 1062 145M974 208 1067 282M927 309 1067 282" stroke="#6376c9" stroke-width="2"/><path d="M842 202 974 208" stroke="url(#accent)" stroke-width="5" opacity=".7" filter="url(#glow)"/></g>
+  <g filter="url(#glow)"><circle cx="842" cy="202" r="26" fill="#7c5cff"/><circle cx="934" cy="108" r="15" fill="#5d7cff"/><circle cx="974" cy="208" r="19" fill="#45a0eb"/><circle cx="927" cy="309" r="15" fill="#557deb"/><circle cx="1062" cy="145" r="15" fill="#24c7bb"/><circle cx="1067" cy="282" r="15" fill="#20d9b5"/></g>
+  <g fill="#ecf4ff"><circle cx="842" cy="202" r="7"/><circle cx="934" cy="108" r="4"/><circle cx="974" cy="208" r="5"/><circle cx="927" cy="309" r="4"/><circle cx="1062" cy="145" r="4"/><circle cx="1067" cy="282" r="4"/></g>
+  <g font-family="Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif"><rect x="72" y="66" width="168" height="30" rx="15" fill="#8b5cf6" fill-opacity=".14" stroke="#9c7cff" stroke-opacity=".55"/><text x="156" y="86" fill="#c9bbff" font-size="13" font-weight="700" text-anchor="middle" letter-spacing="2.4">DEEPSEEK HARNESS</text><text x="68" y="193" fill="#f5f7ff" font-size="66" font-weight="760" letter-spacing="-2.4">DSH GoalMesh</text><rect x="70" y="219" width="610" height="4" rx="2" fill="url(#accent)"/><text x="70" y="274" fill="#c4cce5" font-size="25" font-weight="500">Goal-driven multi-agent orchestration.</text><text x="70" y="313" fill="#7f8aab" font-size="17">Bounded DAGs · Nested delegation · Typed evidence · Durable trajectories</text></g>
+</svg>

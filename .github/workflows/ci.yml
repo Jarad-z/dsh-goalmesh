@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, test, and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out GoalMesh
+        uses: actions/checkout@v4
+        with:
+          path: dsh-goalmesh
+      - name: Check out the pinned DeepSeek Harness baseline
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: e03b614c7918d6b0337503fa51eebdfeaefcb962
+          path: deepseek-harness
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack install --global pnpm@11.7.0
+      - name: Install dependencies
+        working-directory: dsh-goalmesh
+        run: pnpm install --frozen-lockfile
+      - name: Verify
+        working-directory: dsh-goalmesh
+        run: pnpm check

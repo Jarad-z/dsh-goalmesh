@@ -9,9 +9,9 @@ import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-in-process-driver'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { describe, expect, it } from 'vitest'
-import * as host from '../packages/tool-agent-swarm/src/index.js'
-import { applyTrajectoryEvent } from '../packages/tool-agent-swarm/src/invariant.js'
-import type { AgentSwarmToolValue } from '../packages/tool-agent-swarm/src/types.js'
+import * as host from '../packages/tool-goalmesh/src/index.js'
+import { applyTrajectoryEvent } from '../packages/tool-goalmesh/src/invariant.js'
+import type { GoalMeshToolValue } from '../packages/tool-goalmesh/src/types.js'
 import { executeSwarm, rootArgs } from './host-fixture.js'
 
 function toolCallResponse(rawCallId: string, name: string, args: object): StreamChunk[] {
@@ -51,12 +51,12 @@ const taskReport = (summary: string) => ({
   evidence: [{ claim: `${summary} evidence` }],
 })
 
-describe('AgentSwarm v0.3 real nested composition', () => {
+describe('GoalMesh v0.3 real nested composition', () => {
   it('runs a nested swarm through the real AgentLoop and in-process provider without deadlock', async () => {
     const ctx = new Context()
     try {
       const adapter = new ScriptedAdapter([
-        toolCallResponse('parent-delegates', 'agent_swarm', {
+        toolCallResponse('parent-delegates', 'goal_mesh', {
           tasks: [{
             key: 'nested-1',
             description: 'Nested real task',
@@ -80,25 +80,25 @@ describe('AgentSwarm v0.3 real nested composition', () => {
       })
       ctx.llm.registerAdapter(['mock'], adapter)
       const root = ctx.agentLoop.create(SessionId('real-nested-root'), { provider: 'mock', model: 'mock' })
-      const globalTool = ctx.tools.get('agent_swarm', root)
+      const globalTool = ctx.tools.get('goal_mesh', root)
       const children: Agent[] = []
       const scopedTools: unknown[] = []
       ctx.on('agent/created', ({ agent }) => {
         if (agent === root) return
         children.push(agent)
-        scopedTools.push(ctx.tools.get('agent_swarm', agent))
+        scopedTools.push(ctx.tools.get('goal_mesh', agent))
       })
 
       const result = await executeSwarm(ctx, rootArgs(1), { agent: root })
       expect(result.isError).toBe(false)
-      const value = result.value as unknown as AgentSwarmToolValue
+      const value = result.value as unknown as GoalMeshToolValue
       expect(value).toMatchObject({
         kind: 'root',
         summary: { completed: 1, failed: 0, descendants: 1 },
       })
       expect(adapter.requests).toHaveLength(3)
 
-      const firstRequestTool = adapter.requests[0]!.tools?.find(tool => tool.name === 'agent_swarm')
+      const firstRequestTool = adapter.requests[0]!.tools?.find(tool => tool.name === 'goal_mesh')
       const nestedProperties = firstRequestTool?.parameters.properties as Record<string, unknown>
       expect(Object.keys(nestedProperties)).toEqual(['tasks', 'failure_mode', 'quorum'])
       expect(nestedProperties).not.toHaveProperty('goal')
@@ -106,11 +106,11 @@ describe('AgentSwarm v0.3 real nested composition', () => {
       expect(scopedTools[0]).toBeDefined()
       expect(scopedTools[0]).not.toBe(globalTool)
       expect(ctx.agents.get(children[0]!.id)).toBeUndefined()
-      expect(ctx.tools.get('agent_swarm', children[0]!)).not.toBe(scopedTools[0])
+      expect(ctx.tools.get('goal_mesh', children[0]!)).not.toBe(scopedTools[0])
 
-      const events = root.session.events.filter(event => event.type.startsWith('tool-agent-swarm/'))
+      const events = root.session.events.filter(event => event.type.startsWith('tool-goalmesh/'))
       const created = events
-        .filter(event => event.type === 'tool-agent-swarm/task-created')
+        .filter(event => event.type === 'tool-goalmesh/task-created')
         .map(event => event.data as Record<string, unknown>)
       expect(created).toHaveLength(2)
       expect(created[0]).toMatchObject({ key: 'task-1', depth: 1 })
@@ -120,7 +120,7 @@ describe('AgentSwarm v0.3 real nested composition', () => {
       for (const event of events) {
         applyTrajectoryEvent(trace, event, (message) => { throw new Error(message) })
       }
-      expect(events.map(event => event.type.replace('tool-agent-swarm/', ''))).toMatchInlineSnapshot(`
+      expect(events.map(event => event.type.replace('tool-goalmesh/', ''))).toMatchInlineSnapshot(`
         [
           "run-start",
           "invocation-start",

@@ -1,0 +1,25 @@
+{
+  "name": "dsh-goalmesh-plugin",
+  "version": "0.3.0",
+  "description": "Installable DeepSeek Harness bundle for goal-driven multi-agent orchestration.",
+  "keywords": ["deepseek-harness", "dsh-plugin", "multi-agent", "goal-driven", "agent-orchestration"],
+  "type": "module",
+  "main": "index.js",
+  "exports": {".": "./index.js", "./package.json": "./package.json"},
+  "files": ["index.js", "cordis.patch.yml", "README.md"],
+  "dependencies": {
+    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.5",
+    "dsh-client-ui-goalmesh": "workspace:^",
+    "dsh-tool-goalmesh": "workspace:^"
+  },
+  "dsh": {"bundle": {"patch": "./cordis.patch.yml"}},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jarad-z/dsh-goalmesh.git",
+    "directory": "packages/goalmesh-plugin"
+  },
+  "homepage": "https://github.com/Jarad-z/dsh-goalmesh#readme",
+  "bugs": {"url": "https://github.com/Jarad-z/dsh-goalmesh/issues"},
+  "publishConfig": {"access": "public"},
+  "license": "MIT"
+}

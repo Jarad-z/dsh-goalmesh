@@ -1,12 +1,12 @@
 import { defineConfig } from 'tsdown'
 
-const hostRoot = 'packages/tool-agent-swarm'
-const webRoot = 'packages/client-ui-agent-swarm'
-const webPackage = 'dsh-client-ui-agent-swarm'
+const hostRoot = 'packages/tool-goalmesh'
+const webRoot = 'packages/client-ui-goalmesh'
+const webPackage = 'dsh-client-ui-goalmesh'
 
 export default defineConfig([
   {
-    name: 'dsh-tool-agent-swarm',
+    name: 'dsh-tool-goalmesh',
     entry: {
       index: `${hostRoot}/src/index.ts`,
       invariant: `${hostRoot}/src/invariant.ts`,

@@ -5,16 +5,16 @@ import { CallId } from '@deepseek-ai/dsh-llm'
 import type { SubagentProvider } from '@deepseek-ai/dsh-subagent'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { ToolExecutionToken } from '@deepseek-ai/dsh-tools'
-import { SwarmCoordinator } from '../packages/tool-agent-swarm/src/coordinator.js'
+import { SwarmCoordinator } from '../packages/tool-goalmesh/src/coordinator.js'
 import type {
   Launcher,
   LaunchedTask,
   MaterializedTask,
   TaskCompletionOutcome,
-} from '../packages/tool-agent-swarm/src/launcher.js'
-import { SessionTrajectoryRecorderFactory } from '../packages/tool-agent-swarm/src/recorder.js'
-import type { AgentSwarmNestedArgsV03 } from '../packages/tool-agent-swarm/src/types.js'
-import { resolveConfig } from '../packages/tool-agent-swarm/src/validation.js'
+} from '../packages/tool-goalmesh/src/launcher.js'
+import { SessionTrajectoryRecorderFactory } from '../packages/tool-goalmesh/src/recorder.js'
+import type { GoalMeshNestedArgsV03 } from '../packages/tool-goalmesh/src/types.js'
+import { resolveConfig } from '../packages/tool-goalmesh/src/validation.js'
 import { achieved, fakeAgent, rootArgs, until } from './host-fixture.js'
 
 interface ControlledRun {
@@ -81,7 +81,7 @@ class ControlledLauncher implements Launcher {
   }
 }
 
-const nestedArgs = (count = 1): AgentSwarmNestedArgsV03 => ({
+const nestedArgs = (count = 1): GoalMeshNestedArgsV03 => ({
   tasks: Array.from({ length: count }, (_, index) => ({
     key: `nested-${index + 1}`,
     description: `Nested ${index + 1}`,
@@ -95,7 +95,7 @@ const token = (): ToolExecutionToken => Symbol(`nested-command-${++tokenId}`) as
 
 async function waitForRunning(agent: Agent, count = 1): Promise<void> {
   await until(() => agent.session.events.filter(event => (
-    event.type === 'tool-agent-swarm/task-transition'
+    event.type === 'tool-goalmesh/task-transition'
       && (event.data as { readonly to?: unknown }).to === 'running'
   )).length >= count)
 }
@@ -148,7 +148,7 @@ async function setup(config: {
   return { coordinator, launcher, root, rootController, rootHandle }
 }
 
-describe('AgentSwarm v0.3 nested scheduling', () => {
+describe('GoalMesh v0.3 nested scheduling', () => {
   it('releases a maxConcurrency=1 parent permit and resolves only after resume is committed', async () => {
     const mounted = await setup({ maxConcurrency: 1 })
     await until(() => mounted.launcher.runs.length === 1)
@@ -166,11 +166,11 @@ describe('AgentSwarm v0.3 nested scheduling', () => {
         callerAgent: caller,
         callId: CallId('forged-call'),
         commandToken: token(),
-        args: args as unknown as AgentSwarmNestedArgsV03,
+        args: args as unknown as GoalMeshNestedArgsV03,
         signal: new AbortController().signal,
       })).toThrow(/unknown field/)
     }
-    expect(mounted.root.session.events.filter(event => event.type === 'tool-agent-swarm/task-created')).toHaveLength(1)
+    expect(mounted.root.session.events.filter(event => event.type === 'tool-goalmesh/task-created')).toHaveLength(1)
     expect(() => binding.lease.invokeNested({
       callerAgent: fakeAgent('forged-caller'),
       callId: CallId('forged-caller-call'),
@@ -193,7 +193,7 @@ describe('AgentSwarm v0.3 nested scheduling', () => {
     expect(nestedValue).toMatchObject({ kind: 'nested', summary: { completed: 1, descendants: 0 } })
 
     const transitions = mounted.root.session.events
-      .filter(event => event.type === 'tool-agent-swarm/task-transition')
+      .filter(event => event.type === 'tool-goalmesh/task-transition')
       .map(event => `${String((event.data as { from: string }).from)}>${String((event.data as { to: string }).to)}`)
     expect(transitions).toContain('running>waiting_children')
     expect(transitions).toContain('waiting_children>ready_to_resume')
@@ -203,30 +203,30 @@ describe('AgentSwarm v0.3 nested scheduling', () => {
     parent.complete()
     const rootValue = await mounted.rootHandle.result
     expect(rootValue).toMatchObject({ kind: 'root', summary: { completed: 1, descendants: 1 } })
-    expect(mounted.root.session.events.map(event => event.type).filter(type => type.startsWith('tool-agent-swarm/')))
+    expect(mounted.root.session.events.map(event => event.type).filter(type => type.startsWith('tool-goalmesh/')))
       .toMatchInlineSnapshot(`
         [
-          "tool-agent-swarm/run-start",
-          "tool-agent-swarm/invocation-start",
-          "tool-agent-swarm/task-created",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/attempt-start",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/invocation-start",
-          "tool-agent-swarm/task-created",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/attempt-start",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/attempt-end",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/invocation-end",
-          "tool-agent-swarm/attempt-end",
-          "tool-agent-swarm/task-transition",
-          "tool-agent-swarm/invocation-end",
-          "tool-agent-swarm/run-end",
+          "tool-goalmesh/run-start",
+          "tool-goalmesh/invocation-start",
+          "tool-goalmesh/task-created",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/attempt-start",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/invocation-start",
+          "tool-goalmesh/task-created",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/attempt-start",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/attempt-end",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/invocation-end",
+          "tool-goalmesh/attempt-end",
+          "tool-goalmesh/task-transition",
+          "tool-goalmesh/invocation-end",
+          "tool-goalmesh/run-end",
         ]
       `)
     await nested.dispose()
@@ -291,7 +291,7 @@ describe('AgentSwarm v0.3 nested scheduling', () => {
     })
     await until(() => launcher.runs.length === 3)
     nestedController.abort('cancel only nested')
-    await expect(nested.result).rejects.toThrow(/nested agent_swarm invocation was cancelled/)
+    await expect(nested.result).rejects.toThrow(/nested goal_mesh invocation was cancelled/)
     expect(first.task.signal.aborted).toBe(false)
     expect(sibling.task.signal.aborted).toBe(false)
     first.complete()

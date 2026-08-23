@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { dependencyDeadlockCandidates } from '../packages/tool-agent-swarm/src/dag.js'
-import { applyTrajectoryEvent } from '../packages/tool-agent-swarm/src/invariant.js'
-import type { AgentSwarmRootArgsV02, AgentSwarmToolValue } from '../packages/tool-agent-swarm/src/types.js'
+import { dependencyDeadlockCandidates } from '../packages/tool-goalmesh/src/dag.js'
+import { applyTrajectoryEvent } from '../packages/tool-goalmesh/src/invariant.js'
+import type { GoalMeshRootArgsV02, GoalMeshToolValue } from '../packages/tool-goalmesh/src/types.js'
 import {
   ScriptedProvider,
   achieved,
@@ -13,14 +13,14 @@ import {
   until,
 } from './host-fixture.js'
 
-function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): AgentSwarmToolValue {
+function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): GoalMeshToolValue {
   if (result.isError) throw new Error('expected a successful aggregate result')
-  return result.value as unknown as AgentSwarmToolValue
+  return result.value as unknown as GoalMeshToolValue
 }
 
 function dagArgs(
   dependencyFailure: 'fail' | 'skip' | 'partial' = 'fail',
-): AgentSwarmRootArgsV02 {
+): GoalMeshRootArgsV02 {
   const args = rootArgs(2)
   return {
     ...args,
@@ -45,12 +45,12 @@ function promptText(request: ScriptedProvider['requests'][number] | undefined): 
 function expectValidTrajectory(events: readonly SessionEvent[]): void {
   const trace = new Map()
   const fail = (message: string): never => { throw new Error(message) }
-  for (const event of events.filter(event => event.type.startsWith('tool-agent-swarm/'))) {
+  for (const event of events.filter(event => event.type.startsWith('tool-goalmesh/'))) {
     applyTrajectoryEvent(trace, event, fail)
   }
 }
 
-describe('AgentSwarm v0.2 DAG admission and scheduling', () => {
+describe('GoalMesh v0.2 DAG admission and scheduling', () => {
   it.each([
     ['missing dependency', {
       ...dagArgs(),
@@ -71,7 +71,7 @@ describe('AgentSwarm v0.2 DAG admission and scheduling', () => {
     expect(result.isError).toBe(true)
     expect(result.content.map(part => part.type === 'text' ? part.text : '').join('\n')).toMatch(message)
     expect(mounted.provider.requests).toHaveLength(0)
-    expect(agent.session.events.some(event => event.type.startsWith('tool-agent-swarm/'))).toBe(false)
+    expect(agent.session.events.some(event => event.type.startsWith('tool-goalmesh/'))).toBe(false)
   })
 
   it('holds a join until every dependency settles, then materializes stable dependency summaries', async () => {

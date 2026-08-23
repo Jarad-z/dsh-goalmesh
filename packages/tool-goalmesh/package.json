@@ -1,0 +1,35 @@
+{
+  "name": "dsh-tool-goalmesh",
+  "version": "0.3.0",
+  "description": "Host-side GoalMesh coordinator and model-facing tool for DeepSeek Harness.",
+  "keywords": ["deepseek-harness", "dsh-plugin", "multi-agent", "goal-driven", "dag-scheduler"],
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {"types": "./lib/types/index.d.ts", "default": "./lib/index.js"},
+    "./invariant": {"types": "./lib/types/invariant.d.ts", "default": "./lib/invariant.js"},
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/index.js", "lib/invariant.js", "lib/types/**/*.d.ts"],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-invariants": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-subagent": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-timeout": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.5"
+  },
+  "dependencies": {"@deepseek-ai/schemastery": "^3.18.1"},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jarad-z/dsh-goalmesh.git",
+    "directory": "packages/tool-goalmesh"
+  },
+  "homepage": "https://github.com/Jarad-z/dsh-goalmesh#readme",
+  "bugs": {"url": "https://github.com/Jarad-z/dsh-goalmesh/issues"},
+  "publishConfig": {"access": "public"},
+  "license": "MIT"
+}

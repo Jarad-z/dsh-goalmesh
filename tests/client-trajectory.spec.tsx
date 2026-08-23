@@ -18,22 +18,22 @@ import type {
   SessionListState,
   SubagentAddress,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { AgentSwarmInjected, SwarmTrajectoryPanelProps } from '../packages/client-ui-agent-swarm/src/client/index.js'
-import { apply, inject } from '../packages/client-ui-agent-swarm/src/client/index.js'
-import { zh } from '../packages/client-ui-agent-swarm/src/client/locales.js'
+import type { GoalMeshInjected, SwarmTrajectoryPanelProps } from '../packages/client-ui-goalmesh/src/client/index.js'
+import { apply, inject } from '../packages/client-ui-goalmesh/src/client/index.js'
+import { zh } from '../packages/client-ui-goalmesh/src/client/locales.js'
 import {
   SwarmTrajectoryPanel,
   navigationKind,
-} from '../packages/client-ui-agent-swarm/src/client/SwarmTrajectoryPanel.js'
+} from '../packages/client-ui-goalmesh/src/client/SwarmTrajectoryPanel.js'
 import {
   MAX_PROJECTED_TREE_DEPTH,
   isSwarmUpdateEvent,
   swarmTrajectoryDefinition,
-} from '../packages/client-ui-agent-swarm/src/client/trajectory-definition.js'
+} from '../packages/client-ui-goalmesh/src/client/trajectory-definition.js'
 import type {
   SwarmAttemptData,
   SwarmTrajectoryChatData,
-} from '../packages/client-ui-agent-swarm/src/client/trajectory-definition.js'
+} from '../packages/client-ui-goalmesh/src/client/trajectory-definition.js'
 
 interface ClientHandoff {
   readonly id: string
@@ -100,7 +100,7 @@ function trajectoryData(value: ConversationNodeAssembler): SwarmTrajectoryChatDa
 }
 
 function taskCreated(seq: number, taskId: string, parentTaskId?: string): ConversationEventInput {
-  return at(seq, 'tool-agent-swarm/task-created', {
+  return at(seq, 'tool-goalmesh/task-created', {
     swarmId: 'swarm-1',
     invocationId: 'invocation-1',
     taskId,
@@ -133,40 +133,40 @@ function completeEvents(): ConversationEventInput[] {
   return [
     at(1, 'turn/start', { turn: 1 }),
     at(2, 'step/start', { turn: 1, step: 1 }),
-    at(3, 'tool-agent-swarm/run-start', {
+    at(3, 'tool-goalmesh/run-start', {
       swarmId: 'swarm-1', rootSessionId: 'root', goalSummary: 'Audit the repository',
     }),
-    at(4, 'tool-agent-swarm/invocation-start', {
+    at(4, 'tool-goalmesh/invocation-start', {
       swarmId: 'swarm-1', invocationId: 'invocation-1', callerSessionId: 'root',
     }),
     taskCreated(5, 'task-a'),
     taskCreated(6, 'task-b'),
-    at(7, 'tool-agent-swarm/task-transition', {
+    at(7, 'tool-goalmesh/task-transition', {
       swarmId: 'swarm-1', taskId: 'task-a', from: 'ready', to: 'starting',
     }),
-    at(8, 'tool-agent-swarm/attempt-start', {
+    at(8, 'tool-goalmesh/attempt-start', {
       swarmId: 'swarm-1', taskId: 'task-a', attemptId: 'attempt-a', attemptNo: 1,
       childId: 'child-a', parentSessionId: 'root', provider: 'spawn', local: true,
     }),
-    at(9, 'tool-agent-swarm/task-transition', {
+    at(9, 'tool-goalmesh/task-transition', {
       swarmId: 'swarm-1', taskId: 'task-a', from: 'starting', to: 'running',
     }),
-    at(10, 'tool-agent-swarm/attempt-end', {
+    at(10, 'tool-goalmesh/attempt-end', {
       swarmId: 'swarm-1', taskId: 'task-a', attemptId: 'attempt-a', outcome: 'completed',
     }),
-    at(11, 'tool-agent-swarm/task-transition', {
+    at(11, 'tool-goalmesh/task-transition', {
       swarmId: 'swarm-1', taskId: 'task-a', from: 'running', to: 'completed',
     }),
-    at(12, 'tool-agent-swarm/task-transition', {
+    at(12, 'tool-goalmesh/task-transition', {
       swarmId: 'swarm-1', taskId: 'task-b', from: 'ready', to: 'starting',
     }),
-    at(13, 'tool-agent-swarm/task-transition', {
+    at(13, 'tool-goalmesh/task-transition', {
       swarmId: 'swarm-1', taskId: 'task-b', from: 'starting', to: 'failed', reason: 'launch_failed',
     }),
-    at(14, 'tool-agent-swarm/invocation-end', {
+    at(14, 'tool-goalmesh/invocation-end', {
       swarmId: 'swarm-1', invocationId: 'invocation-1', status: 'partial',
     }),
-    at(15, 'tool-agent-swarm/run-end', {
+    at(15, 'tool-goalmesh/run-end', {
       swarmId: 'swarm-1', status: 'partial', completed: 1, failed: 1,
       skipped: 0, cancelled: 0, timedOut: 0,
     }),
@@ -175,7 +175,7 @@ function completeEvents(): ConversationEventInput[] {
   ]
 }
 
-describe('Agent Swarm Conversation Definition', () => {
+describe('GoalMesh Conversation Definition', () => {
   it('produces identical snapshots through full replay, live append, and history prepend', () => {
     const events = completeEvents()
     const replay = trajectoryData(assembler(events))
@@ -196,27 +196,27 @@ describe('Agent Swarm Conversation Definition', () => {
 
   it('replays waiting dependencies, reverse dependents, and deadlock audit diagnostics', () => {
     const value = trajectoryData(assembler([
-      at(1, 'tool-agent-swarm/run-start', {
+      at(1, 'tool-goalmesh/run-start', {
         swarmId: 'swarm-1', rootSessionId: 'root', goalSummary: 'Resolve a DAG',
       }),
-      at(2, 'tool-agent-swarm/invocation-start', {
+      at(2, 'tool-goalmesh/invocation-start', {
         swarmId: 'swarm-1', invocationId: 'invocation-1', callerSessionId: 'root',
       }),
       taskCreated(3, 'task-a'),
       taskCreatedWithDependencies(4, 'task-b', ['task-a']),
-      at(5, 'tool-agent-swarm/task-transition', {
+      at(5, 'tool-goalmesh/task-transition', {
         swarmId: 'swarm-1', taskId: 'task-a', from: 'ready', to: 'starting',
       }),
-      at(6, 'tool-agent-swarm/task-transition', {
+      at(6, 'tool-goalmesh/task-transition', {
         swarmId: 'swarm-1', taskId: 'task-a', from: 'starting', to: 'failed', reason: 'launch_failed',
       }),
-      at(7, 'tool-agent-swarm/task-transition', {
+      at(7, 'tool-goalmesh/task-transition', {
         swarmId: 'swarm-1', taskId: 'task-b', from: 'waiting', to: 'failed', reason: 'dependency_deadlock',
       }),
-      at(8, 'tool-agent-swarm/invocation-end', {
+      at(8, 'tool-goalmesh/invocation-end', {
         swarmId: 'swarm-1', invocationId: 'invocation-1', status: 'partial',
       }),
-      at(9, 'tool-agent-swarm/run-end', {
+      at(9, 'tool-goalmesh/run-end', {
         swarmId: 'swarm-1', status: 'partial', completed: 0, failed: 2,
         skipped: 0, cancelled: 0, timedOut: 0,
       }),
@@ -233,8 +233,8 @@ describe('Agent Swarm Conversation Definition', () => {
 
   it('uses a closed update guard and ignores future same-prefix events', () => {
     expect(isSwarmUpdateEvent(completeEvents()[3]!.event)).toBe(true)
-    expect(isSwarmUpdateEvent(at(99, 'tool-agent-swarm/future', { swarmId: 'swarm-1' }).event)).toBe(false)
-    expect(swarmTrajectoryDefinition.match(at(99, 'tool-agent-swarm/future', { swarmId: 'swarm-1' }).event))
+    expect(isSwarmUpdateEvent(at(99, 'tool-goalmesh/future', { swarmId: 'swarm-1' }).event)).toBe(false)
+    expect(swarmTrajectoryDefinition.match(at(99, 'tool-goalmesh/future', { swarmId: 'swarm-1' }).event))
       .toBeNull()
   })
 
@@ -318,7 +318,7 @@ function panelProps(
 ): SwarmTrajectoryPanelProps {
   return {
     node: {
-      key: 'agent-swarm-trajectory:swarm-1', kind: 'agent-swarm-trajectory', id: 'swarm-1',
+      key: 'goalmesh-trajectory:swarm-1', kind: 'goalmesh-trajectory', id: 'swarm-1',
       target: 'chat', anchorSeq: 3, location: { kind: 'unresolved' }, visibility: 'visible', data,
     },
     sessionId: ROOT,
@@ -349,7 +349,7 @@ describe('SwarmTrajectoryPanel', () => {
     const data = trajectoryData(assembler(events))
     if (data === undefined) throw new Error('expected trajectory data')
     render(<SwarmTrajectoryPanel {...panelProps(data)} />)
-    const header = screen.getByRole('button', { name: /Agent Swarm: Audit the repository/ })
+    const header = screen.getByRole('button', { name: /GoalMesh: Audit the repository/ })
     expect(header.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('Task parent')).toBeNull()
     fireEvent.click(header)
@@ -365,7 +365,7 @@ describe('SwarmTrajectoryPanel', () => {
     if (data === undefined) throw new Error('expected trajectory data')
     const openAgent = vi.fn(() => Promise.resolve(true))
     const view = render(<SwarmTrajectoryPanel {...panelProps(data, listState(), openAgent)} />)
-    fireEvent.click(screen.getByRole('button', { name: /Agent Swarm:/ }))
+    fireEvent.click(screen.getByRole('button', { name: /GoalMesh:/ }))
     fireEvent.click(screen.getByRole('button', { name: '打开完整 Agent 会话' }))
     expect(openAgent).toHaveBeenCalledWith(expect.objectContaining({ childId: CHILD, parentSessionId: ROOT }))
     await waitFor(() => {
@@ -455,25 +455,25 @@ async function clientContext(plugin: { readonly inject: readonly string[]; reado
   return { ctx, fiber, sessions: ctx.sessions as unknown as TestSessions, locale: ctx.locale as unknown as TestLocale }
 }
 
-describe('Agent Swarm client lifecycle and navigation', () => {
+describe('GoalMesh client lifecycle and navigation', () => {
   it('registers and removes its Definition, renderer, locale, and style with the fiber', async () => {
     const mounted = await clientContext()
-    expect(mounted.ctx.conversationEvents.entries().map(entry => entry.kind)).toEqual(['agent-swarm-trajectory'])
+    expect(mounted.ctx.conversationEvents.entries().map(entry => entry.kind)).toEqual(['goalmesh-trajectory'])
     expect(mounted.ctx.slots.entries('conversation.chat.node')).toHaveLength(1)
     expect(mounted.locale.registrations).toBe(1)
-    expect(document.querySelector('style[data-plugin="dsh-client-ui-agent-swarm"]')).toBeTruthy()
+    expect(document.querySelector('style[data-plugin="dsh-client-ui-goalmesh"]')).toBeTruthy()
     await mounted.fiber.dispose()
     expect(mounted.ctx.conversationEvents.entries()).toEqual([])
     expect(mounted.ctx.slots.entries('conversation.chat.node')).toEqual([])
     expect(mounted.locale.registrations).toBe(0)
-    expect(document.querySelector('style[data-plugin="dsh-client-ui-agent-swarm"]')).toBeNull()
+    expect(document.querySelector('style[data-plugin="dsh-client-ui-goalmesh"]')).toBeNull()
   })
 
   it('opens only listed or catalog-proven direct local children and refreshes at most once per action', async () => {
     const mounted = await clientContext()
     const entry = mounted.ctx.slots.entries('conversation.chat.node')[0]
-    if (entry === undefined) throw new Error('missing Agent Swarm slot')
-    const actions = entry.inject?.() as unknown as AgentSwarmInjected
+    if (entry === undefined) throw new Error('missing GoalMesh slot')
+    const actions = entry.inject?.() as unknown as GoalMeshInjected
 
     expect(await actions.openAgent(attempt())).toBe(true)
     expect(mounted.sessions.opened).toEqual([CHILD])
@@ -498,7 +498,7 @@ describe('Agent Swarm client lifecycle and navigation', () => {
 
 describe('built Web composition', () => {
   it('executes the real ModuleLoader artifact and mounts it on the real client registries', async () => {
-    const source = readFileSync(resolve('packages/client-ui-agent-swarm/lib/client.js'), 'utf8')
+    const source = readFileSync(resolve('packages/client-ui-goalmesh/lib/client.js'), 'utf8')
     let handoff: ClientHandoff | undefined
     ;(window as ClientWindow).__ModuleLoader__ = { load: value => { handoff = value } }
     // Deliberate execution of this repository's built browser fixture.
@@ -515,13 +515,13 @@ describe('built Web composition', () => {
       if (!modules.has(specifier)) throw new Error(`unexpected client require: ${specifier}`)
       return modules.get(specifier)
     })
-    expect(handoff.id).toBe('dsh-client-ui-agent-swarm')
+    expect(handoff.id).toBe('dsh-client-ui-goalmesh')
     expect(artifact.inject).toEqual(['conversationEvents', 'slots', 'sessions', 'locale'])
     const mounted = await clientContext(artifact as {
       readonly inject: readonly string[]
       readonly apply: (ctx: never) => void
     })
-    expect(mounted.ctx.conversationEvents.entries().map(entry => entry.kind)).toEqual(['agent-swarm-trajectory'])
+    expect(mounted.ctx.conversationEvents.entries().map(entry => entry.kind)).toEqual(['goalmesh-trajectory'])
     expect(mounted.ctx.slots.entries('conversation.chat.node')).toHaveLength(1)
     await mounted.fiber.dispose()
     expect(mounted.ctx.conversationEvents.entries()).toEqual([])

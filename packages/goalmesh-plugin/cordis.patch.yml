@@ -1,0 +1,19 @@
+- insert:
+    - id: goalmesh-invariants
+      name: '@deepseek-ai/dsh-invariants'
+    - id: goalmesh
+      name: dsh-tool-goalmesh
+      config:
+        provider: spawn
+        nestedMode: local-only
+        maxConcurrency: 4
+        maxTasks: 64
+        maxDepth: 3
+        swarmTimeoutMs: 900000
+        attemptTimeoutMs: 300000
+        maxTaskReportChars: 12000
+        maxRenderedResultChars: 50000
+    - id: goalmesh-invariant
+      name: dsh-tool-goalmesh/invariant
+    - id: ui-goalmesh
+      name: dsh-client-ui-goalmesh
