@@ -15,11 +15,15 @@ Clone GoalMesh and the pinned DeepSeek Harness baseline as sibling directories:
 
 ```sh
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout e03b614c7918d6b0337503fa51eebdfeaefcb962
+git -C deepseek-harness checkout 47f943859bef60e4160492346772ded9b24f765a
+git -C deepseek-harness submodule update --init --recursive
 git clone https://github.com/Jarad-z/dsh-goalmesh.git
+git -C deepseek-harness apply ../dsh-goalmesh/harness-patches/goalmesh-prerequisites.patch
 cd dsh-goalmesh
 corepack enable
 corepack install --global pnpm@11.7.0
+pnpm --dir ../deepseek-harness install --frozen-lockfile
+pnpm --dir ../deepseek-harness run build:lib
 pnpm install --frozen-lockfile
 pnpm check
 ```

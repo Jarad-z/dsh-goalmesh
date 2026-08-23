@@ -20,26 +20,36 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out GoalMesh
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: dsh-goalmesh
-      - name: Check out the pinned DeepSeek Harness baseline
-        uses: actions/checkout@v4
+      - name: Check out the public DeepSeek Harness baseline
+        uses: actions/checkout@v5
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: e03b614c7918d6b0337503fa51eebdfeaefcb962
+          ref: 47f943859bef60e4160492346772ded9b24f765a
           path: deepseek-harness
+          submodules: recursive
+      - name: Apply GoalMesh Harness prerequisites
+        run: |
+          git -C deepseek-harness apply --check "$GITHUB_WORKSPACE/dsh-goalmesh/harness-patches/goalmesh-prerequisites.patch"
+          git -C deepseek-harness apply "$GITHUB_WORKSPACE/dsh-goalmesh/harness-patches/goalmesh-prerequisites.patch"
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22.19.0
       - name: Activate pnpm
         run: |
           corepack enable
           corepack install --global pnpm@11.7.0
-      - name: Install dependencies
+      - name: Build Harness libraries
+        working-directory: deepseek-harness
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build:lib
+      - name: Install GoalMesh dependencies
         working-directory: dsh-goalmesh
         run: pnpm install --frozen-lockfile
-      - name: Verify
+      - name: Verify GoalMesh
         working-directory: dsh-goalmesh
         run: pnpm check

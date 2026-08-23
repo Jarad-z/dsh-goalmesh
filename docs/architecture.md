@@ -1,7 +1,7 @@
 # DSH GoalMesh 架构设计
 
 - **状态**：0.3 实施基线（已核对并补齐 DeepSeek Harness 的 Tool、Subagent、Session 与 Web API）。
-- **目标平台**：DeepSeek Harness `0.1.0-rc.5`，Harness 前置提交至 `e03b614c79`（2026-08-22）。
+- **目标平台**：DeepSeek Harness `0.1.0-rc.5` 官方基线 `47f943859b`，加仓库内 `harness-patches/goalmesh-prerequisites.patch`（对应本地前置能力至 `e03b614c79`，2026-08-22）。
 - **输入设计**：`GoalMesh批调度器设计指南.md`。
 - **交付形态**：一个可安装的 DSH Plugin，向模型注册前台 `goal_mesh` Tool；内部复用 `ctx.subagents` 启动 child Agent。
 
@@ -774,7 +774,7 @@ Plugin Fiber
 
 ### 10.2 Harness scopedSetup 前置（已实现）
 
-Harness 的 in-process driver 用 `parent.ctx.agents.create({ setup })` 完成 child composition，并在 `agents.create()` 返回后由 `drivePublishedRun()` 提交首条 `followup`。提交 `e03b614c79` 已把 consumer-owned `scopedSetup` 暴露给 `ctx.subagents.start()`，因此 scoped Tool 会在 publication 和首个 request 前完成安装；实现不能退回到 `start()` 返回后再注册 Tool 的竞态方案。
+Harness 的 in-process driver 用 `parent.ctx.agents.create({ setup })` 完成 child composition，并在 `agents.create()` 返回后由 `drivePublishedRun()` 提交首条 `followup`。仓库内最小 Harness 前置补丁（源自提交 `e03b614c79`）已把 consumer-owned `scopedSetup` 暴露给 `ctx.subagents.start()`，因此 scoped Tool 会在 publication 和首个 request 前完成安装；实现不能退回到 `start()` 返回后再注册 Tool 的竞态方案。
 
 subagent seam 的 publication 前 setup 是显式且受 capability 检查的：
 

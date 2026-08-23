@@ -121,18 +121,23 @@ Host tool, never from model-provided IDs.
 
 ## Development
 
-GoalMesh currently targets DeepSeek Harness `0.1.0-rc.5` at baseline commit
-`e03b614c7918d6b0337503fa51eebdfeaefcb962`.
+GoalMesh v0.3 targets DeepSeek Harness `0.1.0-rc.5` at public baseline commit
+`47f943859bef60e4160492346772ded9b24f765a`, plus the minimal runtime patch in
+[`harness-patches/goalmesh-prerequisites.patch`](harness-patches/goalmesh-prerequisites.patch).
 
 ```sh
 mkdir goalmesh-dev && cd goalmesh-dev
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout e03b614c7918d6b0337503fa51eebdfeaefcb962
+git -C deepseek-harness checkout 47f943859bef60e4160492346772ded9b24f765a
+git -C deepseek-harness submodule update --init --recursive
 git clone https://github.com/Jarad-z/dsh-goalmesh.git
+git -C deepseek-harness apply ../dsh-goalmesh/harness-patches/goalmesh-prerequisites.patch
 cd dsh-goalmesh
 
 corepack enable
 corepack install --global pnpm@11.7.0
+pnpm --dir ../deepseek-harness install --frozen-lockfile
+pnpm --dir ../deepseek-harness run build:lib
 pnpm install --frozen-lockfile
 pnpm check
 ```

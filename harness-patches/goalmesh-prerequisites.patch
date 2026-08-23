@@ -1,0 +1,266 @@
+diff --git a/packages/core/session/src/index.ts b/packages/core/session/src/index.ts
+index 2d82a88623..bee7478236 100644
+--- a/packages/core/session/src/index.ts
++++ b/packages/core/session/src/index.ts
+@@ -14,9 +14,9 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
+ import type { Message } from '@deepseek-ai/dsh-llm'
+ import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
+ import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
+-import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
++import type { CreateSessionOptions, EpochHeader, LogOnlyIntent, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+ import { snapshotJsonValue } from './json.ts'
+-import { deriveEventMessage, SurfaceManager } from './surface.ts'
++import { deriveEventMessage, isSurfaceEligibleType, SurfaceManager } from './surface.ts'
+ import type { SessionSurface } from './surface.ts'
+ import { foldRequestHeader } from './request-header.ts'
+
+@@ -156,6 +156,22 @@ function snapshotSessionHeader(id: SessionId, source?: SessionHeader): SessionHe
+   return validateSessionHeader(id, snapshot)
+ }
+
++/** Snapshot and validate the exact envelope intent accepted by log-only events. */
++function snapshotLogOnlyIntent(type: SessionEventType, input: unknown): LogOnlyIntent {
++  if (input === undefined) return {}
++  const snapshot = snapshotJsonValue(input)
++  if (snapshot === undefined || snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
++    throw new Error(`log-only session event "${type}" intent must be a plain object`)
++  }
++  const record = snapshot as Record<string, unknown>
++  const keys = Object.keys(record)
++  if (keys.length === 0) return {}
++  if (keys.length !== 1 || keys[0] !== 'ignorable' || record['ignorable'] !== true) {
++    throw new Error(`log-only session event "${type}" intent accepts only { ignorable: true }`)
++  }
++  return { ignorable: true }
++}
++
+ /**
+  * Validate an exclusively owned event and deeply freeze its identified message
+  * without copying the event. The caller transfers an object graph that no
+@@ -576,18 +592,15 @@ export class Session {
+    *
+    * @param type - The event type (key of {@link SessionEventMap}).
+    * @param data - The event payload; must be JSON-serializable.
+-   * @param opts - Surface metadata: `surfaceOp` controls how the event enters
+-   *   the ordered surface; `sourceEventSeqs` lists the seq numbers of earlier
+-   *   events this one derives from. REQUIRED for
+-   *   {@link SurfaceEventType} events (every message-producing event must
+-   *   declare how it joins the surface, the sole source of derived model
+-   *   history) and
+-   *   rejected by the compiler for non-surface types like `turn/start` or
+-   *   `assistant/chunk`.
++   * @param opts - For {@link SurfaceEventType} events, required
++   *   {@link SurfaceIntent}: `surfaceOp` controls how the event enters the
++   *   ordered surface, and `sourceEventSeqs` lists the earlier events it
++   *   derives from. For log-only events, optional {@link LogOnlyIntent} may
++   *   set `ignorable: true` when an unknown reader can safely skip the record.
+    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
+    *   `data` that entered the log, so reading `event.data` back sees the logged
+    *   value, never the caller's still-mutable input.
+-   * @throws if `data` or surface metadata is not losslessly JSON-serializable
++   * @throws if `data` or intent metadata is not losslessly JSON-serializable
+    *   (BigInt, function, symbol, undefined, negative zero, non-finite number,
+    *   circular reference, sparse array, or an exotic object such as
+    *   Map/Set/Date/class instance), or when the candidate violates the
+@@ -604,9 +617,21 @@ export class Session {
+   append<T extends SessionEventType>(
+     type: T,
+     data: SessionEventMap[T],
+-    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
++    ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : [opts?: LogOnlyIntent]
+   ): SessionEvent<T> {
+-    const surfaceOpts: SurfaceIntent | undefined = opts[0]
++    const surfaceEvent = isSurfaceEligibleType(type)
++    const rawOpts = opts as readonly unknown[]
++    if (rawOpts.length > 1) {
++      throw new Error(`session event "${type}" accepts at most one intent object`)
++    }
++    const rawIntent = rawOpts[0]
++    if (surfaceEvent && rawIntent !== null && typeof rawIntent === 'object'
++      && Object.prototype.hasOwnProperty.call(rawIntent, 'ignorable')) {
++      throw new Error(`surface session event "${type}" cannot be marked ignorable`)
++    }
++    const surfaceOpts = rawIntent as SurfaceIntent | undefined
++    const carriesSurfaceMetadata = surfaceOpts?.surfaceOp !== undefined || surfaceOpts?.sourceEventSeqs !== undefined
++    const logOnlyIntent = surfaceEvent || carriesSurfaceMetadata ? {} : snapshotLogOnlyIntent(type, rawIntent)
+     const surfaceMetadata = {
+       ...surfaceOpts?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: surfaceOpts.sourceEventSeqs },
+       ...surfaceOpts?.surfaceOp === undefined ? {} : { surfaceOp: surfaceOpts.surfaceOp },
+@@ -629,6 +654,7 @@ export class Session {
+       seq: this.log.length,
+       time: Date.now(),
+       data: dataSnapshot,
++      ...logOnlyIntent,
+       ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+     } as unknown as SessionEvent<T>)
+     this.surfaceManager.validateNext(event as SessionEvent)
+diff --git a/packages/core/session/src/types.ts b/packages/core/session/src/types.ts
+index 17aacd1dfc..a25624f296 100644
+--- a/packages/core/session/src/types.ts
++++ b/packages/core/session/src/types.ts
+@@ -388,6 +388,16 @@ export interface SurfaceIntent {
+   sourceEventSeqs?: number[]
+ }
+
++/**
++ * Optional envelope intent for a log-only {@link Session.append} event.
++ * Set `ignorable: true` only when an older reader may discard an unknown
++ * event of this type without changing session reconstruction. Omission keeps
++ * the event required. Surface events cannot use this intent.
++ */
++export interface LogOnlyIntent {
++  readonly ignorable?: true
++}
++
+ /**
+  * One immutable entry in the session log.
+  *
+diff --git a/packages/subagent/subagent-acp/src/index.ts b/packages/subagent/subagent-acp/src/index.ts
+index 4b526279ba..a8ea490493 100644
+--- a/packages/subagent/subagent-acp/src/index.ts
++++ b/packages/subagent/subagent-acp/src/index.ts
+@@ -144,7 +144,13 @@ function resolveCwd(configured: string | undefined, request: SubagentStartReques
+  * a request needing any of them before `start` runs).
+  */
+ class AcpProvider implements SubagentProvider {
+-  readonly capabilities: SubagentCapabilities = { outputSchema: false, depthLimit: false, toolFilter: false, persona: false }
++  readonly capabilities: SubagentCapabilities = {
++    outputSchema: false,
++    depthLimit: false,
++    toolFilter: false,
++    persona: false,
++    scopedSetup: false,
++  }
+   // Context contract: an out-of-process ACP child starts fresh — no parent conversation crosses the process boundary.
+   readonly inheritsParentContext = false
+
+diff --git a/packages/subagent/subagent-fork-in-process/src/index.ts b/packages/subagent/subagent-fork-in-process/src/index.ts
+index 1f8e48b8c8..20402e0118 100644
+--- a/packages/subagent/subagent-fork-in-process/src/index.ts
++++ b/packages/subagent/subagent-fork-in-process/src/index.ts
+@@ -59,7 +59,7 @@ function completedTurnPrefix(parent: Agent): SessionEvent[] {
+  * restrict() and a scoped shadowing persona section).
+  */
+ class ForkInProcessProvider implements SubagentProvider {
+-  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
++  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true, scopedSetup: true }
+   // Context contract: a forked child IS seeded with the parent's completed-turn prefix.
+   readonly inheritsParentContext = true
+
+diff --git a/packages/subagent/subagent-in-process-driver/src/index.ts b/packages/subagent/subagent-in-process-driver/src/index.ts
+index fd1ebff2be..741fc247d4 100644
+--- a/packages/subagent/subagent-in-process-driver/src/index.ts
++++ b/packages/subagent/subagent-in-process-driver/src/index.ts
+@@ -14,7 +14,7 @@
+ import { randomUUID } from 'node:crypto'
+ import type { Context } from '@deepseek-ai/cordis'
+ import { foldConsumedWork } from '@deepseek-ai/dsh-agent'
+-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
++import type { Agent, AgentHandle, AgentSetup } from '@deepseek-ai/dsh-agent'
+ import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+ import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
+ import {
+@@ -117,7 +117,7 @@ export async function startInProcessRun(
+   const inherited = captureDelegatedPolicyOverrides(parent)
+
+   let structured: StructuredAttachment | undefined
+-  const setup = (childCtx: Context): void => {
++  const setup: AgentSetup = (childCtx: Context) => {
+     appendDelegatedPolicyOverrides((childCtx.agent as Agent).session, inherited)
+     applyChildComposition(childCtx, parent, {
+       persona: request.persona,
+@@ -127,6 +127,7 @@ export async function startInProcessRun(
+       structured = attachStructuredRuntime(childCtx, request.outputSchema)
+     }
+     attachDescriptorAppend(childCtx, request.descriptor)
++    return request.scopedSetup?.(childCtx)
+   }
+
+   const handle = await parent.ctx.agents.create({
+diff --git a/packages/subagent/subagent-spawn-in-process/src/index.ts b/packages/subagent/subagent-spawn-in-process/src/index.ts
+index dcd036e4ad..3f5f85af2a 100644
+--- a/packages/subagent/subagent-spawn-in-process/src/index.ts
++++ b/packages/subagent/subagent-spawn-in-process/src/index.ts
+@@ -39,7 +39,7 @@ export const Config: z<Config> = z.object({
+  * creation window).
+  */
+ class SpawnInProcessProvider implements SubagentProvider {
+-  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true }
++  readonly capabilities: SubagentCapabilities = { outputSchema: true, depthLimit: true, toolFilter: true, persona: true, scopedSetup: true }
+   // Context contract: a spawned child starts fresh — it never sees the parent conversation.
+   readonly inheritsParentContext = false
+
+diff --git a/packages/subagent/subagent/src/index.ts b/packages/subagent/subagent/src/index.ts
+index fe270f1b4c..7a9d4d251c 100644
+--- a/packages/subagent/subagent/src/index.ts
++++ b/packages/subagent/subagent/src/index.ts
+@@ -484,6 +484,7 @@ export class SubagentRuntime extends Service {
+       { when: request.maxDepth !== undefined, cap: 'depthLimit' },
+       { when: request.toolFilter !== undefined, cap: 'toolFilter' },
+       { when: request.persona !== undefined, cap: 'persona' },
++      { when: request.scopedSetup !== undefined, cap: 'scopedSetup' },
+     ]
+     for (const { when, cap } of needs) {
+       if (when && !provider.capabilities[cap]) {
+diff --git a/packages/subagent/subagent/src/out-of-process.ts b/packages/subagent/subagent/src/out-of-process.ts
+index d049dba2be..2ba1444fbb 100644
+--- a/packages/subagent/subagent/src/out-of-process.ts
++++ b/packages/subagent/subagent/src/out-of-process.ts
+@@ -19,14 +19,16 @@ import type { SubagentCapabilities, SubagentResult, SubagentRun, SubagentStopRea
+ /**
+  * The capability advertisement of an out-of-process backend: NONE. A child in
+  * another process cannot honor parent-enforced start features
+- * (`outputSchema`/`maxDepth`/`toolFilter`/`persona`), so the service rejects a
+- * request needing any of them before `start` runs — never accepted-then-ignored.
++ * (`outputSchema`/`maxDepth`/`toolFilter`/`persona`/`scopedSetup`), so the
++ * service rejects a request needing any of them before `start` runs — never
++ * accepted-then-ignored.
+  */
+ export const NO_START_CAPABILITIES: SubagentCapabilities = Object.freeze({
+   outputSchema: false,
+   depthLimit: false,
+   toolFilter: false,
+   persona: false,
++  scopedSetup: false,
+ })
+
+ /**
+diff --git a/packages/subagent/subagent/src/types.ts b/packages/subagent/subagent/src/types.ts
+index 2c5209765f..26a2f06340 100644
+--- a/packages/subagent/subagent/src/types.ts
++++ b/packages/subagent/subagent/src/types.ts
+@@ -9,7 +9,7 @@
+  * @module @deepseek-ai/dsh-subagent/types
+  */
+
+-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
++import type { Agent, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
+ import type { Branded } from '@deepseek-ai/dsh-brand'
+ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+@@ -88,6 +88,7 @@ export interface SubagentCapabilities {
+   readonly depthLimit: boolean
+   readonly toolFilter: boolean
+   readonly persona: boolean
++  readonly scopedSetup?: boolean
+ }
+
+ /**
+@@ -146,6 +147,17 @@ export interface SubagentStartRequest {
+    * persona (strict `{{…}}` interpolation against the registered variables).
+    */
+   readonly persona?: string
++  /**
++   * Trusted same-process composition for this one child. Requires
++   * {@link SubagentCapabilities.scopedSetup}; rejected before provider startup
++   * otherwise. A supporting provider invokes it in the child Agent factory's
++   * unpublished creation transaction after inherited composition is installed.
++   * Async setup and its optional synchronous publication commit settle before
++   * the child is announced or receives its first prompt; rejection rolls the
++   * unpublished child back, and child disposal revokes every scoped
++   * registration it owns.
++   */
++  readonly scopedSetup?: AgentSetup
+ }
+
+ /**

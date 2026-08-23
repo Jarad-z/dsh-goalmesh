@@ -9,6 +9,7 @@ All notable changes to DSH GoalMesh are documented here.
 - Renamed the project and public package family from Agent Swarm to DSH GoalMesh.
 - Renamed the model-facing tool to `goal_mesh`.
 - Added repository branding, CI, contribution guidance, and a security policy.
+- Added a minimal, reproducible Harness prerequisite patch against the public rc.5 baseline.
 
 ## [0.3.0] - 2026-08-22
 
