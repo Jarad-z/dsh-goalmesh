@@ -12,8 +12,8 @@ export const ConfigSchema = z.object({
   maxDepth: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(3),
   swarmTimeoutMs: z.natural().min(1).max(MAX_TIMER_DELAY_MS).default(900_000),
   attemptTimeoutMs: z.natural().min(1).max(MAX_TIMER_DELAY_MS).default(300_000),
-  maxTaskReportChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(12_000),
-  maxRenderedResultChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(50_000),
+  maxTaskReportChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(32_000),
+  maxRenderedResultChars: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(160_000),
   defaultFailureMode: z.union(['collect_all', 'fail_fast'] as const).default('collect_all'),
   nestedMode: z.union(['disabled', 'local-only'] as const).default('disabled'),
   childAgentOptions: z.object({

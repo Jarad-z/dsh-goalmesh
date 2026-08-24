@@ -171,8 +171,8 @@ Bundle 的 `cordis.patch.yml` 插入四个 Entry。Registry 与 invariant compan
         maxDepth: 3
         swarmTimeoutMs: 900000
         attemptTimeoutMs: 300000
-        maxTaskReportChars: 12000
-        maxRenderedResultChars: 50000
+        maxTaskReportChars: 32000
+        maxRenderedResultChars: 160000
     - id: goalmesh-invariant
       name: dsh-tool-goalmesh/invariant
     - id: ui-goalmesh
@@ -409,8 +409,8 @@ interface Config {
 | `maxDepth` | `3` | 相对 Swarm root 的 task 深度上限；直接 task 的 depth 为 1 |
 | `swarmTimeoutMs` | `900000` | 从 root admission 到 quiescence 的总期限 |
 | `attemptTimeoutMs` | `300000` | 从 permit 授予到该 attempt 停稳的期限；排队只受 Swarm 总期限约束 |
-| `maxTaskReportChars` | `12000` | 单个 TaskReport 的完整 JSON 字符上限；超限使该 task 失败 |
-| `maxRenderedResultChars` | `50000` | 父模型看到的 Tool 内容上限 |
+| `maxTaskReportChars` | `32000` | 单个 TaskReport 的完整 JSON 字符上限；超限使该 task 失败 |
+| `maxRenderedResultChars` | `160000` | 父模型看到的 Tool 内容上限 |
 | `defaultFailureMode` | `collect_all` | 部分结果仍有价值 |
 | `nestedMode` | `disabled` in 0.1 | 0.3 完成 scoped setup 后可设为 `local-only` |
 

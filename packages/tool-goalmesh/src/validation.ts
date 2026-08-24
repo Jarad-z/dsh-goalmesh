@@ -64,8 +64,8 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const maxDepth = config.maxDepth ?? 3
   const swarmTimeoutMs = config.swarmTimeoutMs ?? 900_000
   const attemptTimeoutMs = config.attemptTimeoutMs ?? 300_000
-  const maxTaskReportChars = config.maxTaskReportChars ?? 12_000
-  const maxRenderedResultChars = config.maxRenderedResultChars ?? 50_000
+  const maxTaskReportChars = config.maxTaskReportChars ?? 32_000
+  const maxRenderedResultChars = config.maxRenderedResultChars ?? 160_000
   const defaultFailureMode = config.defaultFailureMode ?? 'collect_all'
   positiveSafeInteger(maxConcurrency, 'config.maxConcurrency')
   positiveSafeInteger(maxTasks, 'config.maxTasks')

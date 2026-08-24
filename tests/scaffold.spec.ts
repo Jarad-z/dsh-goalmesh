@@ -36,8 +36,8 @@ describe('three-package scaffold', () => {
       maxDepth: 3,
       swarmTimeoutMs: 900000,
       attemptTimeoutMs: 300000,
-      maxTaskReportChars: 12000,
-      maxRenderedResultChars: 50000,
+      maxTaskReportChars: 32000,
+      maxRenderedResultChars: 160000,
     })
   })
 
