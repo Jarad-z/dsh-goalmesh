@@ -6,6 +6,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as host from '../packages/tool-goalmesh/src/index.js'
 import { ScriptedProvider, achieved, executeSwarm, fakeAgent, mountHost, rootArgs, until } from './host-fixture.js'
 import type { GoalMeshToolValue } from '../packages/tool-goalmesh/src/types.js'
+import { resolveConfig } from '../packages/tool-goalmesh/src/validation.js'
 
 function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): GoalMeshToolValue {
   if (result.isError) throw new Error('expected success')
@@ -13,6 +14,30 @@ function valueOf(result: Awaited<ReturnType<typeof executeSwarm>>): GoalMeshTool
 }
 
 describe('GoalMesh Host v0.2 scheduler', () => {
+  it('defaults report and deadline budgets to unbounded zero sentinels', () => {
+    expect(resolveConfig({ provider: 'mock' })).toMatchObject({
+      swarmTimeoutMs: 0,
+      attemptTimeoutMs: 0,
+      maxTaskReportChars: 0,
+      maxRenderedResultChars: 0,
+    })
+    for (const key of ['swarmTimeoutMs', 'attemptTimeoutMs', 'maxTaskReportChars', 'maxRenderedResultChars'] as const) {
+      expect(() => resolveConfig({ provider: 'mock', [key]: -1 })).toThrow('must be a non-negative safe integer')
+    }
+  })
+
+  it('accepts and renders reports larger than the former bounds by default', async () => {
+    const summary = 'x'.repeat(200_000)
+    const mounted = await mountHost(new ScriptedProvider(() => ({ structured: achieved(summary) })))
+    const result = await executeSwarm(mounted.ctx, rootArgs(1))
+    const value = valueOf(result)
+    expect(value.tasks[0]).toMatchObject({ status: 'completed', report: { summary } })
+
+    const rendered = result.content.map(part => part.type === 'text' ? part.text : '').join('\n')
+    expect((JSON.parse(rendered) as GoalMeshToolValue).tasks[0]?.report?.summary).toBe(summary)
+    expect(rendered).not.toContain('"truncated":true')
+  })
+
   it.each([1, 4, 5, 64])('settles %i tasks with bounded concurrency and stable input order', async (count) => {
     const provider = new ScriptedProvider(request => ({
       delayMs: (count - Number(request.label?.split(' ')[1] ?? 0)) % 4,

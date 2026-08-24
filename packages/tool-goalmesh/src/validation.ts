@@ -55,6 +55,12 @@ function positiveSafeInteger(value: unknown, path: string, max = Number.MAX_SAFE
   }
 }
 
+function nonNegativeSafeInteger(value: unknown, path: string, max = Number.MAX_SAFE_INTEGER): asserts value is number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > max) {
+    throw new Error(`${path} must be a non-negative safe integer no greater than ${max}`)
+  }
+}
+
 export function resolveConfig(config: Config): ResolvedConfig {
   nonBlank(config.provider, 'config.provider')
   const toolName = config.toolName ?? 'goal_mesh'
@@ -62,18 +68,18 @@ export function resolveConfig(config: Config): ResolvedConfig {
   const maxConcurrency = config.maxConcurrency ?? 4
   const maxTasks = config.maxTasks ?? 64
   const maxDepth = config.maxDepth ?? 3
-  const swarmTimeoutMs = config.swarmTimeoutMs ?? 900_000
-  const attemptTimeoutMs = config.attemptTimeoutMs ?? 300_000
-  const maxTaskReportChars = config.maxTaskReportChars ?? 32_000
-  const maxRenderedResultChars = config.maxRenderedResultChars ?? 160_000
+  const swarmTimeoutMs = config.swarmTimeoutMs ?? 0
+  const attemptTimeoutMs = config.attemptTimeoutMs ?? 0
+  const maxTaskReportChars = config.maxTaskReportChars ?? 0
+  const maxRenderedResultChars = config.maxRenderedResultChars ?? 0
   const defaultFailureMode = config.defaultFailureMode ?? 'collect_all'
   positiveSafeInteger(maxConcurrency, 'config.maxConcurrency')
   positiveSafeInteger(maxTasks, 'config.maxTasks')
   positiveSafeInteger(maxDepth, 'config.maxDepth')
-  positiveSafeInteger(swarmTimeoutMs, 'config.swarmTimeoutMs', MAX_TIMER_DELAY_MS)
-  positiveSafeInteger(attemptTimeoutMs, 'config.attemptTimeoutMs', MAX_TIMER_DELAY_MS)
-  positiveSafeInteger(maxTaskReportChars, 'config.maxTaskReportChars')
-  positiveSafeInteger(maxRenderedResultChars, 'config.maxRenderedResultChars')
+  nonNegativeSafeInteger(swarmTimeoutMs, 'config.swarmTimeoutMs', MAX_TIMER_DELAY_MS)
+  nonNegativeSafeInteger(attemptTimeoutMs, 'config.attemptTimeoutMs', MAX_TIMER_DELAY_MS)
+  nonNegativeSafeInteger(maxTaskReportChars, 'config.maxTaskReportChars')
+  nonNegativeSafeInteger(maxRenderedResultChars, 'config.maxRenderedResultChars')
   if (!['collect_all', 'fail_fast'].includes(defaultFailureMode)) {
     throw new Error('config.defaultFailureMode must be "collect_all" or "fail_fast"')
   }
@@ -272,7 +278,7 @@ export function validateTaskReport(value: unknown, maxChars: number): TaskReport
     }
     assertJsonValue(report, 'structured result', new Set())
     const snapshot = JSON.stringify(report)
-    if (snapshot.length > maxChars) {
+    if (maxChars > 0 && snapshot.length > maxChars) {
       return {
         ok: false,
         kind: 'structured_result_too_large',
@@ -296,6 +302,6 @@ export function sanitizeDiagnostic(error: unknown, maxChars = 500): string {
 }
 
 export function boundedText(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value
+  if (maxChars <= 0 || value.length <= maxChars) return value
   return `${value.slice(0, Math.max(0, maxChars - 1))}…`
 }

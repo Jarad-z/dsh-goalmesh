@@ -169,10 +169,10 @@ Bundle 的 `cordis.patch.yml` 插入四个 Entry。Registry 与 invariant compan
         maxConcurrency: 4
         maxTasks: 64
         maxDepth: 3
-        swarmTimeoutMs: 900000
-        attemptTimeoutMs: 300000
-        maxTaskReportChars: 32000
-        maxRenderedResultChars: 160000
+        swarmTimeoutMs: 0
+        attemptTimeoutMs: 0
+        maxTaskReportChars: 0
+        maxRenderedResultChars: 0
     - id: goalmesh-invariant
       name: dsh-tool-goalmesh/invariant
     - id: ui-goalmesh
@@ -295,7 +295,7 @@ interface TaskReport {
 }
 ```
 
-`reported_status` 是 child 对局部 TaskGoal 的自评，不是 Coordinator 对全局 Goal 的判断。`InvocationTaskResult.status: completed` 只表示 child 正常结束并提交了有效 TaskReport；它不等价于 `reported_status: achieved`。Coordinator 在 provider 验证之外重新收窄 `structured: unknown`，并拒绝超过 `maxTaskReportChars` 的 JSON 投影，不能静默截断结构化证据后仍报告成功。
+`reported_status` 是 child 对局部 TaskGoal 的自评，不是 Coordinator 对全局 Goal 的判断。`InvocationTaskResult.status: completed` 只表示 child 正常结束并提交了有效 TaskReport；它不等价于 `reported_status: achieved`。Coordinator 在 provider 验证之外重新收窄 `structured: unknown`；`maxTaskReportChars` 为正数时拒绝超限 JSON 投影，不能静默截断结构化证据后仍报告成功，值为 `0` 时不限制大小。
 
 child prompt 必须由 host 构造，而不是让 root 模型复制整段上下文：
 
@@ -407,14 +407,14 @@ interface Config {
 | `maxConcurrency` | `4` | 同一 Swarm 的 execution permit 上限 |
 | `maxTasks` | `64` | 包含全部动态后代的总 task 上限 |
 | `maxDepth` | `3` | 相对 Swarm root 的 task 深度上限；直接 task 的 depth 为 1 |
-| `swarmTimeoutMs` | `900000` | 从 root admission 到 quiescence 的总期限 |
-| `attemptTimeoutMs` | `300000` | 从 permit 授予到该 attempt 停稳的期限；排队只受 Swarm 总期限约束 |
-| `maxTaskReportChars` | `32000` | 单个 TaskReport 的完整 JSON 字符上限；超限使该 task 失败 |
-| `maxRenderedResultChars` | `160000` | 父模型看到的 Tool 内容上限 |
+| `swarmTimeoutMs` | `0` | 从 root admission 到 quiescence 的总期限；`0` 表示不设 deadline |
+| `attemptTimeoutMs` | `0` | 从 permit 授予到该 attempt 停稳的期限；`0` 表示不设 deadline |
+| `maxTaskReportChars` | `0` | 单个 TaskReport 的完整 JSON 字符上限；`0` 表示不限制大小 |
+| `maxRenderedResultChars` | `0` | 父模型看到的 Tool 内容上限；`0` 表示不截断 |
 | `defaultFailureMode` | `collect_all` | 部分结果仍有价值 |
 | `nestedMode` | `disabled` in 0.1 | 0.3 完成 scoped setup 后可设为 `local-only` |
 
-配置的 `max*` 是硬上限。模型请求可以选择更保守的语义，但不能扩大部署预算。
+四个报告/时间预算默认使用 `0` 作为无上限 sentinel：Deadline 只转发上游取消而不创建 timer，TaskReport 仍做完整结构校验但不做字符数拒绝，Tool renderer 返回完整 JSON。显式配置正整数时恢复对应硬上限；模型请求可以选择更保守的语义，但不能扩大部署预算。
 
 Config 也按版本开放：`0.1` 不接受 `defaultFailureMode` 的非 `collect_all` 值，也不接受 `nestedMode: local-only`；`0.2` 开放 failure mode，`0.3` 才开放 local nested。配置提前写入未来值必须在 plugin load 时失败，不能静默忽略。
 

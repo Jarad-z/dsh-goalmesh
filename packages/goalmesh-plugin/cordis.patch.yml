@@ -9,10 +9,10 @@
         maxConcurrency: 4
         maxTasks: 64
         maxDepth: 3
-        swarmTimeoutMs: 900000
-        attemptTimeoutMs: 300000
-        maxTaskReportChars: 32000
-        maxRenderedResultChars: 160000
+        swarmTimeoutMs: 0
+        attemptTimeoutMs: 0
+        maxTaskReportChars: 0
+        maxRenderedResultChars: 0
     - id: goalmesh-invariant
       name: dsh-tool-goalmesh/invariant
     - id: ui-goalmesh

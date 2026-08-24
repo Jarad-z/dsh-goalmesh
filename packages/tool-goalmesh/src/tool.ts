@@ -16,7 +16,7 @@ type ToolOutputValue = InferValue<typeof GOAL_MESH_OUTPUT_SCHEMA>
 
 export function renderBounded(value: GoalMeshToolValue, maxChars: number): string {
   const serialized = JSON.stringify(value)
-  if (serialized.length <= maxChars) return serialized
+  if (maxChars <= 0 || serialized.length <= maxChars) return serialized
   const compact = {
     swarmId: value.swarmId,
     invocationId: value.invocationId,
