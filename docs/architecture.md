@@ -883,6 +883,37 @@ task2 terminal → unmet=0
 
 每个上游 terminal 都要更新 `dependents`。级联产生的新 terminal 也必须走同一 `settleTask()` 入口，更新 invocation barrier 与 `unfinishedTaskCount`。
 
+### 11.1 已知问题：依赖边只转发 TaskReport 摘要
+
+这里的“上游/下游”描述的是同一 invocation 内 Task DAG 的依赖关系，不是 Root/Child 的 Agent 层级关系。例如 `design depends_on=[investigate]` 时，`investigate` 是上游 Task，`design` 是下游 Task；执行它们的 child Agent 通常是同一 Root 下的兄弟。
+
+当前 dependency materialization 不会把上游的完整 `TaskReport` 交给下游。成功依赖只物化：
+
+```ts
+{
+  key,
+  status: 'completed',
+  reportedStatus,
+  summary,
+}
+```
+
+非成功依赖只物化：
+
+```ts
+{
+  key,
+  status: 'failed' | 'skipped' | 'aborted',
+  failureKind,
+}
+```
+
+因此下游看不到上游报告中的 `evidence`、`output`、`remaining_problems`，也看不到上游的工具调用历史、原始命令输出或 workspace 版本。这个边界不影响 Root invocation 最终返回的直接 TaskReport：Root 仍可获得自己直接创建的各 task 的完整报告；信息损失只发生在“上游 Task → 依赖它的下游 Task”这条 DAG 边上。嵌套 Mesh 中若 parent child 再次摘要 descendant 结果，会形成额外一层语义压缩。
+
+该限制可能导致下游无法复现上游证据、丢失精确参数/文件位置/验证命令、忽略上游明确列出的剩余风险，或者只依据一段自评 `summary` 继续执行。结构化 Schema 只保证摘要形状合法，不证明摘要忠实覆盖完整报告。
+
+在扩展依赖协议前，不得把当前 DAG 描述为“完整证据传递”。后续设计应在上下文预算与证据保真之间显式选择，例如引入有界的 dependency evidence、选定的结构化 `output`、artifact/reference handle 或由上游声明的 handoff payload；同时必须定义大小上限、provenance、workspace 版本与截断语义，并增加“关键证据只存在于 `evidence`/`output` 时仍可被下游消费”的端到端测试。近期修复范围与暂缓项见 [`dependency-handoff-fix.md`](dependency-handoff-fix.md)；其中按需读取完整报告、分页和 artifact handle 明确暂不实施。
+
 ## 12. 错误模型
 
 Admission、task 与 run failure 的身份字段不同，不能塞进一个强制 `taskId` 的类型：
